@@ -3,23 +3,44 @@
   "name": "Zen Folder Tools",
   "version": "0.1.0",
   "description": "Zen-style extras for Firefox: reset folder tabs to their original URL, and Glance (Alt+click a link to preview it in a floating window).",
-  "permissions": ["tabs", "sessions", "menus", "storage"],
-  "background": { "scripts": ["background.js"] },
+  "icons": {
+    "48": "icons/icon.svg",
+    "96": "icons/icon.svg"
+  },
+  "permissions": [
+    "tabs",
+    "sessions",
+    "menus",
+    "storage"
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["glance-content.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "glance-content.js"
+      ],
       "run_at": "document_start",
       "all_frames": true
     }
   ],
   "commands": {
     "reset-tab": {
-      "suggested_key": { "default": "Alt+Shift+R" },
+      "suggested_key": {
+        "default": "Alt+Shift+R"
+      },
       "description": "Reset the current folder tab to its original URL"
     },
     "glance-expand": {
-      "suggested_key": { "default": "Alt+Shift+G" },
+      "suggested_key": {
+        "default": "Alt+Shift+G"
+      },
       "description": "Open the current Glance as a regular tab"
     }
   },
@@ -27,7 +48,11 @@
     "gecko": {
       "id": "zen-folder-tools@manuelpuyol.dev",
       "strict_min_version": "142.0",
-      "data_collection_permissions": { "required": ["none"] }
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
     }
   }
 }
