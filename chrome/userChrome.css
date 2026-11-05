@@ -360,7 +360,21 @@
     min-height var(--zen-folder-duration) var(--zen-folder-easing),
     padding-block var(--zen-folder-duration) var(--zen-folder-easing),
     opacity var(--zen-folder-duration) var(--zen-folder-easing),
-    visibility var(--zen-folder-duration) var(--zen-folder-easing) !important;
+    visibility var(--zen-folder-duration) var(--zen-folder-easing),
+    max-width var(--zen-folder-duration) linear !important;
+}
+
+/* Firefox only treats a group as "animating" while its tabs have a
+ * min-/max-width transition, and while it is it skips auto-scrolling to the
+ * selected tab when the list starts or stops overflowing. Transition an
+ * invisible max-width change for the same duration so opening a folder
+ * doesn't scroll the sidebar. */
+#tabbrowser-tabs[orient="vertical"][expanded] tab-group > .tabbrowser-tab {
+  max-width: 100000px !important;
+}
+
+#tabbrowser-tabs[orient="vertical"][expanded] tab-group[collapsed] > .tabbrowser-tab {
+  max-width: 99999px !important;
 }
 
 #tabbrowser-tabs[orient="vertical"][expanded] tab-group > .tabbrowser-tab {
