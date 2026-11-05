@@ -12,7 +12,7 @@ Tested with Firefox 159 (the "Nova" design) on macOS, compared side by side with
   - Folder icon that opens and closes, `+N` count badge, whole row clickable.
   - Animated open and close.
   - Hovering a collapsed folder for 1 second shows its tabs (this delay applies to all Firefox tooltips; set with `ui.tooltip.delay_ms`).
-  - **Subfolders:** a group whose name starts with a space nests under the group above it (two spaces for two levels).
+  - **Subfolders:** a group whose name starts with a space nests under the group above it (two spaces for two levels), and is shown above that folder's own tabs, like Zen.
 - **Tab rows:** Zen's measurements for hover and selection: 8px inset, 14px radius, icons and titles aligned with folders.
 - **Unloaded tabs:** greyed out ("ghost" tabs).
 - **Separator:** a line between your folders and loose tabs.
@@ -86,7 +86,7 @@ Things Zen does that this can't reproduce:
 - **Spaces:** Firefox has no equivalent.
 - **Translucency:** Zen uses a darker macOS material (HUD) that Firefox doesn't expose, so the sidebar is tinted with CSS instead.
 - **Subfolders are a naming convention:** Firefox tab groups can't nest, so a subfolder is a separate group shown indented under the one above it. That means:
-  - Firefox won't drop a group inside another group, so a subfolder always sits after its parent folder's own tabs. You can reorder subfolders among themselves, but not mix them in between a folder's tabs.
+  - Firefox won't drop a group inside another group, so a subfolder always sits after its parent folder's own tabs. The theme shows subfolders above those tabs anyway (with CSS `order`), but keyboard navigation and drag-and-drop still follow Firefox's real order, and you can't mix subfolders in between a folder's tabs.
   - A folder's `+N` count only includes its own tabs, not its subfolders' (Zen counts both).
 - **Folder tabs aren't pinned:** Zen keeps folder tabs pinned. Here they're regular tabs; the extension adds the reset-to-original-URL part.
 - **Close-to-unload:** closing a folder tab unloads it in Zen. Firefox can only fake this by reopening the tab, which flickers.

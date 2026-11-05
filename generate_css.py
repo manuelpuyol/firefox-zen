@@ -5,6 +5,7 @@ CSS can't count or walk back to a parent group, so we enumerate:
 - "+N" tab counts on each tab group
 - hiding subfolders (groups whose name starts with spaces) when the folder
   above them is collapsed
+- showing subfolders above their parent folder's own tabs
 """
 
 from pathlib import Path
@@ -14,6 +15,7 @@ MARKER = "/* @generated — do not edit below this line; run generate_css.py */"
 MAX_TABS = 99
 MAX_SIBLINGS = 12
 MAX_DEPTH = 3
+MAX_TOP_LEVEL_GROUPS = 40
 
 TABS = '#tabbrowser-tabs[orient="vertical"]'
 
@@ -52,10 +54,32 @@ def subfolder_hiding():
 }"""
 
 
+def subfolders_first():
+    """Show subfolders above their parent folder's own tabs.
+
+    Firefox requires a group's tabs to come before any other group, so the
+    subfolders are moved visually with flex `order`. Tab groups are
+    display: contents, so their labels and tabs are all items of one flex
+    list; every item gets an order from the top-level folder it follows:
+      3k   - folder k's label, and its subfolders
+      3k+1 - folder k's own tabs
+      3k+2 - loose tabs after folder k
+    Rules for later folders come later in the file with equal specificity,
+    so the nearest preceding folder wins.
+    """
+    top = 'tab-group:not([label^=" "])'
+    for k in range(1, MAX_TOP_LEVEL_GROUPS + 1):
+        g = f"{TABS} #tabbrowser-arrowscrollbox > :nth-child({k} of {top})"
+        base = 3 * k
+        yield f":where({g} > *, {g} ~ tab-group > *, {g} ~ :not(tab-group)) {{ order: {base}; }}"
+        yield f":where({g} > :is(.tabbrowser-tab, tab-split-view-wrapper)) {{ order: {base + 1}; }}"
+        yield f":where({g} ~ :not(tab-group)) {{ order: {base + 2}; }}"
+
+
 def main():
     text = CSS.read_text()
     head = text[: text.index(MARKER) + len(MARKER)]
-    body = "\n".join(["", *subfolder_hiding(), "", *counts(), ""])
+    body = "\n".join(["", *subfolder_hiding(), "", *subfolders_first(), "", *counts(), ""])
     CSS.write_text(head + "\n" + body)
     print(f"Regenerated {CSS}")
 
