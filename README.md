@@ -6,11 +6,12 @@ Tested with Firefox 159 (the "Nova" design) on macOS, compared side by side with
 
 ## What you get
 
-- **Sidebar:** native vertical tabs, 300px wide, without the Firefox tool buttons.
+- **Sidebar:** native vertical tabs, 300px wide, without the Firefox tool buttons. Control+Z shows and hides it.
 - **Essentials:** pinned tabs shown as a grid of rounded tiles.
 - **Folders:** tab groups restyled as Zen folders.
   - Folder icon that opens and closes, `+N` count badge, whole row clickable.
   - Animated open and close.
+  - Hovering a collapsed folder for 1 second shows its tabs (this delay applies to all Firefox tooltips; set with `ui.tooltip.delay_ms`).
   - **Subfolders:** a group whose name starts with a space nests under the group above it (two spaces for two levels).
 - **Tab rows:** Zen's measurements for hover and selection: 8px inset, 14px radius, icons and titles aligned with folders.
 - **Unloaded tabs:** greyed out ("ghost" tabs).
@@ -84,7 +85,10 @@ Things Zen does that this can't reproduce:
 
 - **Spaces:** Firefox has no equivalent.
 - **Translucency:** Zen uses a darker macOS material (HUD) that Firefox doesn't expose, so the sidebar is tinted with CSS instead.
-- **Folders aren't real folders:** Firefox tab groups can't nest, so subfolders are a naming convention. They also don't keep tabs pinned the way Zen folders do.
+- **Subfolders are a naming convention:** Firefox tab groups can't nest, so a subfolder is a separate group shown indented under the one above it. That means:
+  - A subfolder must sit directly after its parent (or a sibling subfolder); dragging it elsewhere un-nests it.
+  - A folder's `+N` count only includes its own tabs, not its subfolders' (Zen counts both).
+- **Folder tabs aren't pinned:** Zen keeps folder tabs pinned. Here they're regular tabs; the extension adds the reset-to-original-URL part.
 - **Close-to-unload:** closing a folder tab unloads it in Zen. Firefox can only fake this by reopening the tab, which flickers.
 - **Glance:** opens a separate window rather than an overlay inside the page.
 - **New tabs:** Firefox creates the tab immediately; Zen waits until you press Enter in the floating URL bar.
