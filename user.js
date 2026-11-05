@@ -29,6 +29,9 @@ user_pref("widget.macos.titlebar-blend-mode.behind-window", true);
 user_pref("browser.tabs.groups.enabled", true);
 user_pref("browser.tabs.splitView.enabled", true);
 user_pref("browser.tabs.groups.hoverPreview.enabled", true);
+// Wait 1s (default 0.5s) before showing a collapsed folder's tab list or a
+// tab preview. Firefox uses the same delay for all tooltips.
+user_pref("ui.tooltip.delay_ms", 1000);
 
 // Session: continue where you left off, keep pinned tabs (= Essentials) loaded
 user_pref("browser.startup.page", 3);
