@@ -1,0 +1,629 @@
+/* Zen-like Firefox — userChrome.css
+ * Tested on Firefox 159 (Nova) on macOS with native vertical tabs and the
+ * default (system) theme. Measurements mirror Zen 1.24b.
+ * Edit above the @generated marker; run ../generate_css.py to rebuild below it.
+ * Requires toolkit.legacyUserProfileCustomizations.stylesheets = true (user.js).
+ */
+
+:root {
+  --zen-gap: 8px;
+  --zen-radius: 10px;
+  --zen-tab-radius: 14px;
+  --zen-tab-height: 36px;
+  --zen-ghost-opacity: 0.6;
+  /* Darkens Firefox's sidebar material towards Zen's near-black HUD material */
+  --zen-chrome-tint: light-dark(rgb(255 255 255 / 0.2), rgb(0 0 0 / 0.35));
+  --zen-hover-bg: light-dark(rgb(0 0 0 / 0.05), rgb(226 226 226 / 0.07));
+  --zen-selected-bg: light-dark(rgb(255 255 255 / 0.8), rgb(198 207 216 / 0.22));
+  --zen-tile-bg: light-dark(rgb(0 0 0 / 0.05), rgb(212 220 232 / 0.135));
+  --zen-subfolder-indent: 14px;
+  /* Sidebar row geometry (Zen: highlight inset 8px, icon at 17px, title at 43px) */
+  --zen-row-inset: 8px;
+  --zen-row-padding: 9px;
+  --zen-icon-gap: 10px;
+  --zen-folder-duration: 200ms;
+  --zen-folder-easing: ease-in-out;
+  /* Context-fill isn't honoured for data: URIs, so pick colours per scheme */
+  --zen-folder-closed: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='white' stroke='black' stroke-width='1.4' stroke-linejoin='round'><path d='M1.75 4a1.25 1.25 0 0 1 1.25-1.25h3.3l1.6 1.6h5.1a1.25 1.25 0 0 1 1.25 1.25v6.4a1.25 1.25 0 0 1-1.25 1.25H3a1.25 1.25 0 0 1-1.25-1.25z'/></svg>");
+  --zen-folder-open: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='white' stroke='black' stroke-width='1.4' stroke-linejoin='round'><path d='M1.75 12.6V4a1.25 1.25 0 0 1 1.25-1.25h3.3l1.6 1.6h4.1a1.25 1.25 0 0 1 1.25 1.25v1.15'/><path d='M1.75 12.6l1.85-4.85a1.25 1.25 0 0 1 1.17-.8h9.05a.75.75 0 0 1 .7 1.02l-1.7 4.4a1.25 1.25 0 0 1-1.17.8H2.9a1.15 1.15 0 0 1-1.15-.57z'/></svg>");
+
+  @media (prefers-color-scheme: dark) {
+    --zen-folder-closed: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='black' stroke='white' stroke-width='1.4' stroke-linejoin='round'><path d='M1.75 4a1.25 1.25 0 0 1 1.25-1.25h3.3l1.6 1.6h5.1a1.25 1.25 0 0 1 1.25 1.25v6.4a1.25 1.25 0 0 1-1.25 1.25H3a1.25 1.25 0 0 1-1.25-1.25z'/></svg>");
+    --zen-folder-open: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='black' stroke='white' stroke-width='1.4' stroke-linejoin='round'><path d='M1.75 12.6V4a1.25 1.25 0 0 1 1.25-1.25h3.3l1.6 1.6h4.1a1.25 1.25 0 0 1 1.25 1.25v1.15'/><path d='M1.75 12.6l1.85-4.85a1.25 1.25 0 0 1 1.17-.8h9.05a.75.75 0 0 1 .7 1.02l-1.7 4.4a1.25 1.25 0 0 1-1.17.8H2.9a1.15 1.15 0 0 1-1.15-.57z'/></svg>");
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 1. Translucent window (Zen vibrancy). Needs the widget.macos.*-blend-mode
+ *    prefs from user.js. Firefox only renders vibrancy with the default
+ *    (system) theme: any add-on theme paints the window opaque.
+ * ------------------------------------------------------------------------ */
+
+@media (-moz-platform: macos) {
+  /* Nova paints an opaque root colour and a purple 50% gradient on <body>;
+   * both sit over the native material and make it look tinted and opaque. */
+  :root:not([lwtheme]) {
+    background-color: transparent !important;
+    --toolbar-bgcolor: transparent !important;
+    --toolbox-bgcolor: transparent !important;
+    --toolbox-bgcolor-inactive: transparent !important;
+    --toolbox-background-color: transparent !important;
+    --toolbox-background-color-inactive: transparent !important;
+    --toolbox-background-image: none !important;
+    --sidebar-background-color: transparent !important;
+  }
+
+  :root:not([lwtheme]) body {
+    background: transparent !important;
+  }
+
+  :root:not([lwtheme]) :is(#navigator-toolbox, #browser) {
+    appearance: -moz-sidebar !important;
+  }
+}
+
+#navigator-toolbox,
+#nav-bar,
+#TabsToolbar,
+#titlebar,
+#browser,
+#sidebar-main,
+#sidebar-box,
+#tabbrowser-tabbox,
+#tabbrowser-tabpanels {
+  background-color: transparent !important;
+  background-image: none !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+#nav-bar {
+  min-height: 42px !important;
+}
+
+/* Vibrant regions are cleared by the compositor, so the tint has to be painted
+ * by elements above them, not by <body>. */
+@media (-moz-platform: macos) {
+  :root:not([lwtheme], [inDOMFullscreen]) :is(#nav-bar, #sidebar-main, #tabbrowser-tabbox) {
+    background-color: var(--zen-chrome-tint) !important;
+  }
+}
+
+/* Firefox's own "+N" chip under a collapsed group's active tab; we show our own */
+#tabbrowser-tabs[orient="vertical"] .tab-group-overflow-count-container {
+  display: none !important;
+}
+
+/* ---------------------------------------------------------------------------
+ * 2. Floating, rounded web content
+ * ------------------------------------------------------------------------ */
+
+:root:not([inDOMFullscreen], [macOSNativeFullscreen]) {
+  #tabbrowser-tabbox {
+    padding: 0 var(--zen-gap) var(--zen-gap) var(--zen-gap) !important;
+  }
+
+  #tabbrowser-tabbox:not([sidebar-positionend]):is([sidebar-shown], [sidebar-panel-open]) {
+    padding-inline-start: 0 !important;
+  }
+  #tabbrowser-tabbox[sidebar-positionend]:is([sidebar-shown], [sidebar-panel-open]) {
+    padding-inline-end: 0 !important;
+  }
+
+  #tabbrowser-tabpanels .browserContainer {
+    border: none !important;
+    border-radius: var(--zen-radius) !important;
+    overflow: clip !important;
+    box-shadow:
+      0 0 0 1px light-dark(rgb(0 0 0 / 0.06), rgb(255 255 255 / 0.06)),
+      0 3px 8px rgb(0 0 0 / 0.24) !important;
+  }
+
+  #tabbrowser-tabpanels .browserStack > browser {
+    border-radius: var(--zen-radius) !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 3. URL bar: quiet field until focused
+ * ------------------------------------------------------------------------ */
+
+#urlbar:not([focused], [open]) > #urlbar-background,
+#urlbar:not([focused], [open]) .urlbar-background {
+  background: light-dark(rgb(0 0 0 / 0.05), rgb(255 255 255 / 0.06)) !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Floating URL bar (Zen "floating-on-type"): on a new tab or as soon as you
+ * type, the URL bar and its suggestions move to the middle of the window.
+ * The suggestions popover is anchored to the input, so it follows. */
+#urlbar:is([focused], [open]):is([usertyping], [pageproxystate="invalid"]) {
+  /* Centred with auto margins: anchor positioning (the suggestions) ignores
+   * transforms, so translate() would leave them behind. */
+  position: fixed !important;
+  inset-block-start: 22vh !important;
+  inset-inline: 0 !important;
+  margin-inline: auto !important;
+  width: min(760px, 70vw) !important;
+  height: auto !important;
+  --urlbar-height: 48px;
+  font-size: 15px;
+  z-index: 10;
+
+  &:not([popover-open]) > .urlbar-background {
+    border-radius: 14px !important;
+    box-shadow: 0 16px 48px rgb(0 0 0 / 0.45), 0 0 0 1px light-dark(rgb(0 0 0 / 0.1), rgb(255 255 255 / 0.12)) !important;
+  }
+}
+
+/* The toolbar sits below the page in stacking order; lift it while floating */
+#navigator-toolbox:has(#urlbar:is([focused], [open]):is([usertyping], [pageproxystate="invalid"])) {
+  z-index: 10 !important;
+  overflow: visible !important;
+}
+
+/* Dim the page behind the floating URL bar */
+#tabbrowser-tabbox::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 0.25);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease;
+}
+
+:root:has(#urlbar:is([focused], [open]):is([usertyping], [pageproxystate="invalid"])) #tabbrowser-tabbox::after {
+  opacity: 1;
+}
+
+/* ---------------------------------------------------------------------------
+ * 4. Sidebar tabs: pill rows, no borders
+ * ------------------------------------------------------------------------ */
+
+#tabbrowser-tabs[orient="vertical"] {
+  .tabbrowser-tab {
+    min-height: calc(var(--zen-tab-height) + 4px) !important;
+    padding-block: 2px !important;
+  }
+
+  .tabbrowser-tab:not([pinned]) {
+    padding-inline: 0 !important;
+  }
+
+  .tabbrowser-tab:not([pinned]) .tab-background {
+    margin: 0 var(--zen-row-inset) !important;
+  }
+
+  .tabbrowser-tab:not([pinned]) .tab-content {
+    padding-inline: calc(var(--zen-row-inset) + var(--zen-row-padding)) calc(var(--zen-row-inset) + 6px) !important;
+  }
+
+  /* The icon stack is 24px wide around a 16px favicon */
+  .tabbrowser-tab:not([pinned]) .tab-icon-stack {
+    margin-inline-end: calc(var(--zen-icon-gap) - 8px) !important;
+  }
+
+  .tab-background {
+    border-radius: var(--zen-tab-radius) !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+  }
+
+  .tabbrowser-tab:hover > .tab-stack > .tab-background {
+    background: var(--zen-hover-bg) !important;
+  }
+
+  .tabbrowser-tab:is([selected], [multiselected]) > .tab-stack > .tab-background {
+    background: var(--zen-selected-bg) !important;
+    box-shadow: 0 0.8px 1.5px rgb(0 0 0 / 0.05) !important;
+  }
+
+  .tab-label {
+    font-size: 13.75px !important;
+  }
+}
+
+/* Essentials: pinned tabs become a grid of rounded tiles */
+#tabbrowser-tabs[orient="vertical"][expanded] #pinned-tabs-container {
+  /* Firefox sizes the Essentials grid rows/columns from these */
+  --tab-height-with-margin-padding: 50px !important;
+  --tab-pinned-min-width: 64px !important;
+  flex: none !important;
+  height: auto !important;
+  max-height: none !important;
+  margin-block-start: 6px !important;
+  padding-block-end: 8px !important;
+  margin-block-end: 4px !important;
+  border-block-end: 1px solid light-dark(rgb(0 0 0 / 0.08), rgb(255 255 255 / 0.08)) !important;
+
+  .tabbrowser-tab {
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    height: 50px !important;
+    padding: 2px !important;
+  }
+
+  .tab-background {
+    margin: 0 !important;
+    background: var(--zen-tile-bg) !important;
+  }
+
+  .tabbrowser-tab:hover > .tab-stack > .tab-background {
+    background: color-mix(in srgb, var(--zen-tile-bg), currentColor 8%) !important;
+  }
+
+  .tabbrowser-tab[selected] > .tab-stack > .tab-background {
+    background: var(--zen-selected-bg) !important;
+  }
+
+  .tab-label-container {
+    display: none !important;
+  }
+
+  .tab-content {
+    justify-content: center !important;
+    padding: 0 !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 5. Tab groups look like Zen folders: folder icon, plain label, indent
+ * ------------------------------------------------------------------------ */
+
+#tabbrowser-tabs[orient="vertical"] tab-group {
+  --tab-group-line-color: transparent !important;
+  --tab-group-line-thickness: 0px !important;
+  --zen-indent: 0px;
+
+  /* Subfolders: a leading space per level in the group name */
+  &[label^=" "] { --zen-indent: var(--zen-subfolder-indent); }
+  &[label^="  "] { --zen-indent: calc(2 * var(--zen-subfolder-indent)); }
+  &[label^="   "] { --zen-indent: calc(3 * var(--zen-subfolder-indent)); }
+
+  .tab-group-label-container,
+  .tab-group-label-hover-highlight {
+    box-sizing: border-box !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: calc(var(--zen-tab-height) + 4px) !important;
+    margin: 0 !important;
+    padding-block: 2px !important;
+    padding-inline: 0 !important;
+    justify-content: center !important;
+    align-items: stretch !important;
+  }
+
+  .tab-group-label-hover-highlight {
+    min-height: var(--zen-tab-height) !important;
+    padding-block: 0 !important;
+  }
+
+  /* The whole row is the click target, not just the name */
+  .tab-group-label {
+    display: block !important;
+    box-sizing: border-box !important;
+    align-self: stretch !important;
+    width: calc(100% - 2 * var(--zen-row-inset)) !important;
+    max-width: none !important;
+    height: var(--zen-tab-height) !important;
+    min-height: var(--zen-tab-height) !important;
+    line-height: var(--zen-tab-height) !important;
+    /* Same inset as tab backgrounds; icon and text land on the favicon/title columns */
+    margin: 0 var(--zen-row-inset) !important;
+    padding-block: 0 !important;
+    padding-inline-start: calc(var(--zen-indent) + var(--zen-row-padding) + 16px + var(--zen-icon-gap)) !important;
+    background-color: transparent !important;
+    color: inherit !important;
+    font-weight: 600 !important;
+    font-size: 13.75px !important;
+    border-radius: var(--zen-tab-radius) !important;
+    outline: none !important;
+    box-shadow: none !important;
+    background-image: var(--zen-folder-closed) !important;
+    background-repeat: no-repeat !important;
+    /* 18px icon centred on the 16px favicon column */
+    background-position: calc(var(--zen-indent) + var(--zen-row-padding) - 2px) center !important;
+    background-size: 20px !important;
+    text-align: start !important;
+  }
+
+  &:not([collapsed]) .tab-group-label {
+    background-image: var(--zen-folder-open) !important;
+  }
+
+  .tab-group-label:hover {
+    background-color: var(--zen-hover-bg) !important;
+  }
+
+}
+
+#tabbrowser-tabs[orient="vertical"][expanded] tab-group > .tabbrowser-tab {
+  margin-inline-start: 0 !important;
+  padding-inline-start: calc(var(--zen-indent) + var(--zen-subfolder-indent)) !important;
+}
+
+/* Folder open/close animation (Zen: ~200ms ease-in-out, fade + collapse).
+ * Firefox hides collapsed tabs with display:none, which can't be animated, so
+ * collapsed tabs stay in layout at zero height and become visibility:hidden
+ * once the transition ends. @starting-style animates tabs created inside an
+ * open group. */
+#tabbrowser-tabs[orient="vertical"][expanded] tab-group > :is(.tabbrowser-tab, .tab-group-label-container) {
+  overflow: clip;
+  transition:
+    height var(--zen-folder-duration) var(--zen-folder-easing),
+    min-height var(--zen-folder-duration) var(--zen-folder-easing),
+    padding-block var(--zen-folder-duration) var(--zen-folder-easing),
+    opacity var(--zen-folder-duration) var(--zen-folder-easing),
+    visibility var(--zen-folder-duration) var(--zen-folder-easing) !important;
+}
+
+#tabbrowser-tabs[orient="vertical"][expanded] tab-group > .tabbrowser-tab {
+  height: calc(var(--zen-tab-height) + 4px);
+
+  @starting-style {
+    height: 0 !important;
+    min-height: 0 !important;
+    padding-block: 0 !important;
+    opacity: 0 !important;
+  }
+}
+
+#tabbrowser-tabs[orient="vertical"][expanded] tab-group[label^=" "] > .tab-group-label-container {
+  @starting-style {
+    height: 0 !important;
+    min-height: 0 !important;
+    padding-block: 0 !important;
+    opacity: 0 !important;
+  }
+}
+
+#tabbrowser-tabs[orient="vertical"][expanded] tab-group[collapsed] > .tabbrowser-tab:not([visuallyselected], [multiselected]) {
+  display: flex !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  padding-block: 0 !important;
+  opacity: 0 !important;
+}
+
+/* Separator between folders and the loose tabs below them (Zen "clear" line) */
+#tabbrowser-tabs[orient="vertical"][expanded] tab-group + .tabbrowser-tab:not([pinned]):not(:has(~ tab-group)) {
+  margin-block-start: 6px !important;
+  padding-block-start: 12px !important;
+  min-height: calc(var(--zen-tab-height) + 14px) !important;
+  background: linear-gradient(light-dark(rgb(0 0 0 / 0.1), rgb(255 255 255 / 0.1)), light-dark(rgb(0 0 0 / 0.1), rgb(255 255 255 / 0.1)))
+    no-repeat center 3px / calc(100% - 16px) 1px !important;
+}
+
+/* ---------------------------------------------------------------------------
+ * 6. Ghost unloaded tabs (the whole row, not just the favicon)
+ * ------------------------------------------------------------------------ */
+
+#tabbrowser-tabs .tabbrowser-tab[pending]:not([selected]) .tab-content {
+  opacity: var(--zen-ghost-opacity);
+  filter: saturate(0);
+  transition: opacity 300ms, filter 300ms;
+}
+
+
+/* ---------------------------------------------------------------------------
+ * 7. Tab count on tab groups (Zen folder "+N")
+ *    The number comes from the generated rules at the bottom of this file.
+ * ------------------------------------------------------------------------ */
+
+#tabbrowser-tabs[orient="vertical"] tab-group > .tab-group-label-container::before {
+  position: absolute;
+  inset-inline-end: calc(var(--zen-row-inset) + 8px);
+  inset-block-start: 50%;
+  translate: 0 -50%;
+  z-index: 2;
+  min-width: 14px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background-color: light-dark(rgb(0 0 0 / 0.07), rgb(255 255 255 / 0.1));
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 14px;
+  text-align: center;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+#tabbrowser-tabs[orient="vertical"][expanded] tab-group .tab-group-label {
+  padding-inline-end: 36px !important;
+}
+
+#tabbrowser-tabs[orient="vertical"]:not([expanded]) tab-group > .tab-group-label-container::before {
+  inset-block-start: 2px;
+  inset-inline-end: 0;
+  translate: none;
+  font-size: 8px;
+  opacity: 0.8;
+}
+
+/* @generated — do not edit below this line; run generate_css.py */
+
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "] + tab-group[label^=" "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "] + tab-group[label^=" "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "] + tab-group[label^=" "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^=" "]:not([label^="  "]) + tab-group[label^="  "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^=" "]:not([label^="  "]) + tab-group[label^="  "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^=" "]:not([label^="  "]) + tab-group[label^="  "] + tab-group[label^="  "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^=" "]:not([label^="  "]) + tab-group[label^="  "] + tab-group[label^="  "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^=" "]:not([label^="  "]) + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^=" "]:not([label^="  "]) + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^=" "]:not([label^="  "]) + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^=" "]:not([label^="  "]) + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^=" "]:not([label^="  "]) + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^=" "]:not([label^="  "]) + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^=" "]:not([label^="  "]) + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^=" "]:not([label^="  "]) + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^=" "]:not([label^="  "]) + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^=" "]:not([label^="  "]) + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^=" "]:not([label^="  "]) + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^=" "]:not([label^="  "]) + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^=" "]:not([label^="  "]) + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^=" "]:not([label^="  "]) + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^=" "]:not([label^="  "]) + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^=" "]:not([label^="  "]) + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^=" "]:not([label^="  "]) + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^=" "]:not([label^="  "]) + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^=" "]:not([label^="  "]) + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^=" "]:not([label^="  "]) + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "] + tab-group[label^="  "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^="  "]:not([label^="   "]) + tab-group[label^="   "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^="  "]:not([label^="   "]) + tab-group[label^="   "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^="  "]:not([label^="   "]) + tab-group[label^="   "] + tab-group[label^="   "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^="  "]:not([label^="   "]) + tab-group[label^="   "] + tab-group[label^="   "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^="  "]:not([label^="   "]) + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^="  "]:not([label^="   "]) + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^="  "]:not([label^="   "]) + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^="  "]:not([label^="   "]) + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^="  "]:not([label^="   "]) + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^="  "]:not([label^="   "]) + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^="  "]:not([label^="   "]) + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^="  "]:not([label^="   "]) + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^="  "]:not([label^="   "]) + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^="  "]:not([label^="   "]) + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^="  "]:not([label^="   "]) + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^="  "]:not([label^="   "]) + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^="  "]:not([label^="   "]) + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^="  "]:not([label^="   "]) + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^="  "]:not([label^="   "]) + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^="  "]:not([label^="   "]) + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^="  "]:not([label^="   "]) + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^="  "]:not([label^="   "]) + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "]:not([hasactivetab]) > .tabbrowser-tab,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^="  "]:not([label^="   "]) + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "]:not([hasactivetab]) > .tab-group-label-container,
+#tabbrowser-tabs[orient="vertical"] tab-group[collapsed][label^="  "]:not([label^="   "]) + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "] + tab-group[label^="   "]:not([hasactivetab]) > .tabbrowser-tab {
+  height: 0 !important;
+  min-height: 0 !important;
+  padding-block: 0 !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(1 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+1"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(2 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+2"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(3 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+3"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(4 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+4"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(5 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+5"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(6 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+6"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(7 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+7"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(8 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+8"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(9 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+9"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(10 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+10"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(11 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+11"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(12 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+12"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(13 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+13"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(14 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+14"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(15 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+15"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(16 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+16"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(17 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+17"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(18 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+18"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(19 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+19"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(20 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+20"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(21 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+21"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(22 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+22"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(23 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+23"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(24 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+24"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(25 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+25"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(26 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+26"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(27 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+27"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(28 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+28"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(29 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+29"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(30 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+30"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(31 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+31"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(32 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+32"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(33 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+33"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(34 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+34"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(35 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+35"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(36 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+36"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(37 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+37"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(38 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+38"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(39 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+39"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(40 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+40"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(41 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+41"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(42 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+42"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(43 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+43"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(44 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+44"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(45 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+45"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(46 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+46"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(47 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+47"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(48 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+48"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(49 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+49"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(50 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+50"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(51 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+51"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(52 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+52"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(53 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+53"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(54 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+54"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(55 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+55"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(56 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+56"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(57 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+57"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(58 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+58"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(59 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+59"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(60 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+60"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(61 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+61"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(62 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+62"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(63 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+63"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(64 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+64"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(65 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+65"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(66 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+66"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(67 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+67"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(68 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+68"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(69 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+69"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(70 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+70"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(71 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+71"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(72 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+72"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(73 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+73"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(74 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+74"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(75 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+75"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(76 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+76"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(77 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+77"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(78 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+78"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(79 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+79"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(80 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+80"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(81 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+81"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(82 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+82"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(83 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+83"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(84 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+84"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(85 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+85"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(86 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+86"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(87 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+87"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(88 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+88"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(89 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+89"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(90 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+90"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(91 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+91"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(92 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+92"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(93 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+93"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(94 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+94"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(95 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+95"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(96 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+96"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(97 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+97"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(98 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+98"; }
+#tabbrowser-tabs[orient="vertical"] tab-group:has(> .tabbrowser-tab:nth-child(99 of .tabbrowser-tab):nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before { content: "+99"; }
