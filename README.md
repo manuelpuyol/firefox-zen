@@ -86,7 +86,7 @@ Things Zen does that this can't reproduce:
 - **Spaces:** Firefox has no equivalent.
 - **Translucency:** Zen uses a darker macOS material (HUD) that Firefox doesn't expose, so the sidebar is tinted with CSS instead.
 - **Subfolders are a naming convention:** Firefox tab groups can't nest, so a subfolder is a separate group shown indented under the one above it. That means:
-  - A subfolder must sit directly after its parent (or a sibling subfolder); dragging it elsewhere un-nests it.
+  - Firefox won't drop a group inside another group, so a subfolder always sits after its parent folder's own tabs. You can reorder subfolders among themselves, but not mix them in between a folder's tabs.
   - A folder's `+N` count only includes its own tabs, not its subfolders' (Zen counts both).
 - **Folder tabs aren't pinned:** Zen keeps folder tabs pinned. Here they're regular tabs; the extension adds the reset-to-original-URL part.
 - **Close-to-unload:** closing a folder tab unloads it in Zen. Firefox can only fake this by reopening the tab, which flickers.
