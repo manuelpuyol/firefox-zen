@@ -7,6 +7,8 @@
   --row-padding: 9px;
   --radius: 14px;
   --indent: 14px;
+  --text-size: 13.75px;
+  --essentials-max: 50vh;
   --text: light-dark(rgb(0 0 0 / 0.85), rgb(255 255 255 / 0.85));
   --text-dim: light-dark(rgb(0 0 0 / 0.5), rgb(255 255 255 / 0.5));
   --hover: light-dark(rgb(0 0 0 / 0.05), rgb(226 226 226 / 0.07));
@@ -20,12 +22,6 @@
 }
 
 /* Settings (applied by sidebar.js) */
-body.compact {
-  --row-height: 32px;
-  --radius: 10px;
-  font-size: 13px;
-}
-
 body.hide-counts .count,
 body.hide-clear #clear {
   display: none;
@@ -51,7 +47,7 @@ body.no-animations {
    the rows below. They never take more than half the sidebar: past that they
    scroll on their own, so the list below always stays reachable. */
 .essentials {
-  max-height: 50vh;
+  max-height: var(--essentials-max);
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-color: var(--line) transparent;
@@ -69,7 +65,7 @@ html, body {
   background: transparent;
   color: var(--text);
   font: menu;
-  font-size: 13.75px;
+  font-size: var(--text-size);
   user-select: none;
   -moz-user-select: none;
 }
@@ -200,7 +196,7 @@ button {
   border-radius: 6px;
   display: grid;
   place-items: center;
-  font-size: 14px;
+  font-size: calc(var(--text-size) * 1.02);
   color: var(--text-dim);
 }
 
@@ -239,7 +235,7 @@ button {
   padding: 2px 6px;
   border-radius: 999px;
   background: var(--hover);
-  font-size: 11px;
+  font-size: calc(var(--text-size) * 0.8);
   font-weight: 600;
   line-height: 14px;
   text-align: center;
@@ -289,7 +285,7 @@ button {
 }
 
 #clear {
-  font-size: 12px;
+  font-size: calc(var(--text-size) * 0.875);
   color: var(--text-dim);
   padding: 2px 6px;
   border-radius: 6px;
@@ -314,7 +310,7 @@ button {
   display: block;
   margin: 4px calc(var(--row-inset) + var(--row-padding));
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: calc(var(--text-size) * 0.875);
 }
 
 .footer {
@@ -358,7 +354,7 @@ button {
 
 #new-tab .plus {
   width: 16px;
-  font-size: 18px;
+  font-size: calc(var(--text-size) * 1.3);
   text-align: center;
 }
 

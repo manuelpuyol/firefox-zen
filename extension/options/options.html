@@ -23,10 +23,6 @@
       <section class="card">
         <h2>Sidebar</h2>
         <div class="setting">
-          <div class="text"><span class="label">Compact rows</span><span class="hint">Shorter rows and smaller corners.</span></div>
-          <input type="checkbox" class="switch" data-setting="sidebar.compact">
-        </div>
-        <div class="setting">
           <div class="text"><span class="label">Essentials tile size</span><span class="hint">Smaller tiles fit more per row.</span></div>
           <div class="range">
             <input type="range" min="44" max="96" step="2" data-setting="sidebar.tileSize">
@@ -56,6 +52,38 @@
         <div class="setting">
           <div class="text"><span class="label">Show scrollbar</span><span class="hint">Space for it is always kept, so opening a folder doesn't shift the list.</span></div>
           <input type="checkbox" class="switch" data-setting="sidebar.showScrollbar">
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Appearance</h2>
+        <div class="setting">
+          <div class="text"><span class="label">Text size</span><span class="hint">Tab and folder names, and the smaller labels with them.</span></div>
+          <div class="range">
+            <input type="range" min="11" max="20" step="0.25" data-setting="appearance.textSize">
+            <output data-output="appearance.textSize" data-unit="px"></output>
+          </div>
+        </div>
+        <div class="setting">
+          <div class="text"><span class="label">Row height</span><span class="hint">Zen uses 40px; 32px is compact. Corners follow.</span></div>
+          <div class="range">
+            <input type="range" min="28" max="56" step="2" data-setting="appearance.rowHeight">
+            <output data-output="appearance.rowHeight" data-unit="px"></output>
+          </div>
+        </div>
+        <div class="setting">
+          <div class="text"><span class="label">Folder indent</span><span class="hint">How far each folder level is shifted right.</span></div>
+          <div class="range">
+            <input type="range" min="4" max="32" step="2" data-setting="appearance.indent">
+            <output data-output="appearance.indent" data-unit="px"></output>
+          </div>
+        </div>
+        <div class="setting">
+          <div class="text"><span class="label">Essentials height limit</span><span class="hint">The most of the sidebar the Essentials take; past it they scroll on their own.</span></div>
+          <div class="range">
+            <input type="range" min="20" max="80" step="5" data-setting="appearance.essentialsMaxHeight">
+            <output data-output="appearance.essentialsMaxHeight" data-unit="%"></output>
+          </div>
         </div>
       </section>
 

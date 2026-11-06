@@ -33,12 +33,19 @@ let settings = ZF.normalizeSettings({});
 function applySettings(next) {
   settings = next;
   const sb = settings.sidebar;
-  document.body.classList.toggle("compact", sb.compact);
   document.body.classList.toggle("hide-counts", !sb.showCounts);
   document.body.classList.toggle("hide-clear", !sb.showClear);
   document.body.classList.toggle("no-animations", !sb.animations);
   document.documentElement.classList.toggle("hide-scrollbar", !sb.showScrollbar);
-  document.documentElement.style.setProperty("--tile-size", `${sb.tileSize}px`);
+  const root = document.documentElement.style;
+  root.setProperty("--tile-size", `${sb.tileSize}px`);
+  const ap = settings.appearance;
+  root.setProperty("--text-size", `${ap.textSize}px`);
+  root.setProperty("--row-height", `${ap.rowHeight}px`);
+  // Corners follow the row height (Zen: 14px on 40px rows).
+  root.setProperty("--radius", `${Math.round(ap.rowHeight * 0.35)}px`);
+  root.setProperty("--indent", `${ap.indent}px`);
+  root.setProperty("--essentials-max", `${ap.essentialsMaxHeight}vh`);
 }
 
 const $ = id => document.getElementById(id);

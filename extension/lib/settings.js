@@ -6,7 +6,6 @@
 
   ZF.SETTINGS_DEFAULTS = Object.freeze({
     sidebar: {
-      compact: false,
       tileSize: 64,
       showCounts: true,
       showClear: true,
@@ -15,6 +14,7 @@
       animations: true,
       showScrollbar: true,
     },
+    appearance: { textSize: 13.75, rowHeight: 40, indent: 14, essentialsMaxHeight: 50 },
     folders: { convertTabGroups: true },
     autoUnload: { enabled: true, staleMinutes: 60, scanIntervalMinutes: 5, keepEssentialsLoaded: true, neverUnload: "" },
     glance: { enabled: true, size: 80 },
@@ -25,6 +25,11 @@
     return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.round(n))) : fallback;
   };
   const bool = (value, fallback) => (typeof value === "boolean" ? value : fallback);
+  // Like clamp, but rounds to a step (e.g. 0.25 for text sizes).
+  const stepped = (value, min, max, step, fallback) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.round(n / step) * step)) : fallback;
+  };
 
   ZF.normalizeSettings = raw => {
     const d = ZF.SETTINGS_DEFAULTS;
@@ -32,9 +37,10 @@
     const sb = s.sidebar ?? {};
     const au = s.autoUnload ?? {};
     const gl = s.glance ?? {};
+    // Before 0.9.0, "Compact rows" was a single switch: it becomes its sizes.
+    const ap = s.appearance ?? (sb.compact === true ? { rowHeight: 32, textSize: 13 } : {});
     return {
       sidebar: {
-        compact: bool(sb.compact, d.sidebar.compact),
         tileSize: clamp(sb.tileSize, 44, 96, d.sidebar.tileSize),
         showCounts: bool(sb.showCounts, d.sidebar.showCounts),
         showClear: bool(sb.showClear, d.sidebar.showClear),
@@ -42,6 +48,12 @@
         animations: bool(sb.animations, d.sidebar.animations),
         confirmClear: bool(sb.confirmClear, d.sidebar.confirmClear),
         showScrollbar: bool(sb.showScrollbar, d.sidebar.showScrollbar),
+      },
+      appearance: {
+        textSize: stepped(ap.textSize, 11, 20, 0.25, d.appearance.textSize),
+        rowHeight: stepped(ap.rowHeight, 28, 56, 2, d.appearance.rowHeight),
+        indent: stepped(ap.indent, 4, 32, 2, d.appearance.indent),
+        essentialsMaxHeight: stepped(ap.essentialsMaxHeight, 20, 80, 5, d.appearance.essentialsMaxHeight),
       },
       folders: {
         convertTabGroups: bool(s.folders?.convertTabGroups, d.folders.convertTabGroups),
