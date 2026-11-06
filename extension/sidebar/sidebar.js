@@ -100,7 +100,8 @@ function scheduleRender() {
 
 // Only what the list shows; if it's unchanged, the DOM is left alone.
 function signature(v) {
-  const tab = t => [t.id, t.title, t.url, t.favIconUrl, t.active, t.highlighted, t.discarded, t.audible, t.mutedInfo?.muted, t.zfOriginalUrl];
+  // Place and position too: a move can change only a tab's stored position.
+  const tab = t => [t.id, t.title, t.url, t.favIconUrl, t.active, t.highlighted, t.discarded, t.audible, t.mutedInfo?.muted, t.zfOriginalUrl, t.zfPlace, t.zfOrder];
   return JSON.stringify([
     v.essentials.map(tab),
     v.folders.map(f => [f.id, f.name, f.parentId, f.order, f.collapsed]),
@@ -110,10 +111,15 @@ function signature(v) {
   ]);
 }
 
+let renderSeq = 0;
+
 async function render({ force = false } = {}) {
   renderPending = false;
   const generation = editGeneration;
+  const seq = ++renderSeq;
   const next = await ZF.buildView(windowId);
+  // A newer render started meanwhile; it has fresher data.
+  if (seq !== renderSeq) return;
   if (generation !== editGeneration) {
     scheduleRender();
     return;

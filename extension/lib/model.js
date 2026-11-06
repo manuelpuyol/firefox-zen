@@ -171,6 +171,17 @@ ZF.buildView = async windowId => {
   return view;
 };
 
+// Stored positions of kept tabs in `key`, across every window.
+async function keptTabsEverywhere(key) {
+  const out = [];
+  for (const tab of await browser.tabs.query({ pinned: false })) {
+    if ((await ZF.getPlace(tab.id)) !== key) continue;
+    const order = await browser.sessions.getTabValue(tab.id, ZF.ORDER_KEY).catch(() => undefined);
+    out.push({ tab, order: typeof order === "number" ? order : UNPOSITIONED + tab.index });
+  }
+  return out;
+}
+
 // Items of a folder (or ROOT): its subfolders and tabs, in one order.
 ZF.itemsOf = (view, key) => {
   const parentId = key === ZF.ROOT ? null : key;
@@ -347,9 +358,29 @@ ZF.moveItems = async (windowId, moving, key, { anchor = null, after = false, atS
   // Too little room left between the neighbours (after many moves): space the
   // whole folder out again.
   const crowded = positions.some((p, i) => p <= (positions[i - 1] ?? low) || p >= high);
-  const placed = crowded
-    ? [...items.slice(0, at), ...moving, ...items.slice(at)].map((item, i) => ({ ...item, order: i }))
-    : moving.map((item, i) => ({ ...item, order: positions[i] }));
+  let placed = moving.map((item, i) => ({ ...item, order: positions[i] }));
+  let respaced = false;
+  if (crowded) {
+    // Space the folder out again, across every window: folders are shared,
+    // so other windows' tabs in this folder are renumbered too, keeping
+    // their order relative to the folders.
+    const everywhere = [
+      ...(await ZF.loadFolders())
+        .filter(f => (f.parentId ?? null) === parentId && !movingFolders.includes(f.id))
+        .map(f => ({ kind: "folder", id: f.id, order: f.order ?? 0 })),
+      ...(await keptTabsEverywhere(key))
+        .filter(({ tab }) => !moving.some(m => m.kind === "tab" && m.id === tab.id))
+        .map(({ tab, order }) => ({ kind: "tab", id: tab.id, order })),
+    ].sort((a, b) => a.order - b.order || (a.kind === b.kind ? 0 : a.kind === "folder" ? -1 : 1));
+    // Insert after this window's preceding item (or before its first one).
+    const anchorItem = items[at - 1] ?? null;
+    const anchorAt = anchorItem ? everywhere.findIndex(i => i.kind === anchorItem.kind && i.id === anchorItem.id) + 1 : 0;
+    const firstOfWindow = items[at] ? everywhere.findIndex(i => i.kind === items[at].kind && i.id === items[at].id) : -1;
+    const insertAt = anchorItem ? anchorAt : Math.max(0, firstOfWindow);
+    everywhere.splice(insertAt, 0, ...moving);
+    placed = everywhere.map((item, i) => ({ ...item, order: i }));
+    respaced = true;
+  }
 
   const folderOrder = new Map();
   for (const item of placed) {
@@ -365,22 +396,24 @@ ZF.moveItems = async (windowId, moving, key, { anchor = null, after = false, atS
       if (folderOrder.has(f.id)) f.order = folderOrder.get(f.id);
     }
   });
-  if (movingFolders.length) await ZF.normalizeAllWindows();
+  if (movingFolders.length || respaced) await ZF.normalizeAllWindows();
   else await ZF.normalizeOrder(windowId);
 };
 
 ZF.moveTab = (tabId, place, position) => ZF.moveTabs([tabId], place, position);
 
-// Move a folder under parentId (null = top level), before/after a sibling.
-
-
-ZF.createFolder = (name, parentId = null) =>
-  ZF.mutateFolders(folders => {
-    // After everything in the parent (tabs without a position sort at UNPOSITIONED+).
-    const folder = { id: ZF.newId(), name, parentId, collapsed: false, order: 2 * UNPOSITIONED + folders.length };
+ZF.createFolder = async (name, parentId = null) => {
+  // Strictly after everything already in the parent, in every window, so it
+  // never ties with a tab's position.
+  const tabOrders = (await keptTabsEverywhere(parentId ?? ZF.ROOT)).map(t => t.order);
+  return ZF.mutateFolders(folders => {
+    const siblings = folders.filter(f => (f.parentId ?? null) === parentId).map(f => f.order ?? 0);
+    const order = Math.floor(Math.max(2 * UNPOSITIONED, ...siblings, ...tabOrders)) + 1;
+    const folder = { id: ZF.newId(), name, parentId, collapsed: false, order };
     folders.push(folder);
     return folder;
   });
+};
 
 ZF.updateFolder = (folderId, changes) =>
   ZF.mutateFolders(folders => {
@@ -514,13 +547,16 @@ ZF.closeOldPlaceholders = async () => {
 
 // Convert Firefox tab groups into folders (subfolders use the leading-space
 // naming from the userChrome.css setup), then ungroup them.
-ZF.migrateNativeGroups = async () => {
+// `onlyGroupIds`: convert just these (named groups whose name has settled);
+// without it, every group (startup, or turning conversion back on).
+ZF.migrateNativeGroups = async (onlyGroupIds = null) => {
   let groups;
   try {
     groups = await browser.tabGroups.query({});
   } catch {
     return 0;
   }
+  if (onlyGroupIds) groups = groups.filter(g => onlyGroupIds.includes(g.id) && g.title?.trim());
   if (!groups.length) return 0;
   // Folders are shared by all windows and kept on disk, so groups in private
   // windows are left alone.

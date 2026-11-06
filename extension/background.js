@@ -67,10 +67,14 @@ browser.menus.onClicked.addListener(async (info, tab) => {
   if (!tab) return;
   if (info.menuItemId === "reset-tab") resetTab(tab);
   if (info.menuItemId === "set-original") markCurrentAsOriginal(tab);
-  // Act on every selected tab when the clicked tab is part of the selection.
-  const selection = tab.highlighted ? (await browser.tabs.query({ windowId: tab.windowId, highlighted: true })).map(t => t.id) : [tab.id];
-  if (info.menuItemId === "zf-keep") ZF.moveTabs(selection, ZF.ROOT);
-  if (info.menuItemId === "zf-unkeep") ZF.moveTabs(selection, null);
+  // Act on every selected tab when the clicked tab is part of the selection,
+  // but only on the ones the action applies to: Keep takes regular tabs,
+  // Unkeep takes kept tabs; Essentials are never touched.
+  const selected = tab.highlighted ? await browser.tabs.query({ windowId: tab.windowId, highlighted: true }) : [tab];
+  const unpinned = selected.filter(t => !t.pinned);
+  const places = await Promise.all(unpinned.map(t => ZF.getPlace(t.id)));
+  if (info.menuItemId === "zf-keep") ZF.moveTabs(unpinned.filter((_, i) => !places[i]).map(t => t.id), ZF.ROOT);
+  if (info.menuItemId === "zf-unkeep") ZF.moveTabs(unpinned.filter((_, i) => places[i]).map(t => t.id), null);
   if (info.menuItemId === "zf-folder-with-tab") {
     const folder = await ZF.createFolder("New Folder", null);
     await ZF.moveTab(tab.id, folder.id);
@@ -81,10 +85,10 @@ browser.menus.onClicked.addListener(async (info, tab) => {
 // Firefox's own "Add Tab to New Group" creates a native tab group; turn it
 // into a sidebar folder once it has a name.
 let migrating = Promise.resolve();
-function migrateSoon() {
+function migrateSoon(groupIds = null) {
   migrating = migrating
     .then(async () => {
-      if ((await ZF.getSettings()).folders.convertTabGroups) await ZF.migrateNativeGroups();
+      if ((await ZF.getSettings()).folders.convertTabGroups) await ZF.migrateNativeGroups(groupIds);
     })
     .catch(() => {});
 }
@@ -104,7 +108,8 @@ for (const event of ["onCreated", "onUpdated"]) {
       setTimeout(async () => {
         pendingGroups.delete(group.id);
         const now = await browser.tabGroups.get(group.id).catch(() => null);
-        if (now?.title === group.title) migrateSoon();
+        // Only this group; others are still waiting for their own name to settle.
+        if (now?.title === group.title) migrateSoon([group.id]);
       }, 1000)
     );
   });
