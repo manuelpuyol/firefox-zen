@@ -545,7 +545,13 @@ ZF.importZenFolders = async data => {
     placed++;
   }
 
-  // Drop "Recovered" folders that no longer hold anything.
+  await dropEmptyRecoveredFolders();
+  await ZF.normalizeAllWindows();
+  return { folders: idMap.size, tabs: placed };
+};
+
+// Drop "Recovered" folders that no longer hold anything.
+async function dropEmptyRecoveredFolders() {
   const used = new Set();
   for (const tab of await browser.tabs.query({})) used.add(await ZF.getPlace(tab.id));
   await ZF.mutateFolders(folders => {
@@ -554,8 +560,176 @@ ZF.importZenFolders = async data => {
       if (f.name.startsWith("Recovered folder") && !used.has(f.id) && !folders.some(c => c.parentId === f.id)) folders.splice(i, 1);
     }
   });
+}
+
+// ---------------------------------------------------------------------------
+// Backup file: folders, kept tabs (place, position, address) and Essentials.
+// Private windows are left out.
+// ---------------------------------------------------------------------------
+
+ZF.BACKUP_FORMAT = "zen-folder-tools-backup";
+
+ZF.isWebUrl = url => {
+  try {
+    return ["http:", "https:"].includes(new URL(url).protocol);
+  } catch {
+    return false;
+  }
+};
+
+ZF.exportFolders = async () => {
+  const folders = await ZF.loadFolders();
+  const known = new Set(folders.map(f => f.id));
+  const tabs = [];
+  const essentials = [];
+  const all = (await browser.tabs.query({})).filter(t => !t.incognito).sort((a, b) => a.windowId - b.windowId || a.index - b.index);
+  for (const tab of all) {
+    if (tab.pinned) {
+      if (ZF.isWebUrl(tab.url)) essentials.push({ url: tab.url, title: tab.title ?? "" });
+      continue;
+    }
+    const place = await ZF.getPlace(tab.id);
+    if (!place) continue;
+    const get = key => browser.sessions.getTabValue(tab.id, key).catch(() => undefined);
+    const order = await get(ZF.ORDER_KEY);
+    tabs.push({
+      place: known.has(place) ? place : ZF.ROOT,
+      order: typeof order === "number" ? order : null,
+      url: tab.url,
+      originalUrl: (await get(ZF.ORIGINAL_URL_KEY)) ?? null,
+      title: tab.title ?? "",
+    });
+  }
+  return {
+    format: ZF.BACKUP_FORMAT,
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    folders: folders.map(f => ({ id: f.id, name: f.name, parentId: f.parentId ?? null, collapsed: Boolean(f.collapsed), order: f.order ?? 0 })),
+    tabs,
+    essentials,
+  };
+};
+
+// Checks a whole backup file before anything is changed; throws on anything
+// unexpected and returns a clean copy.
+ZF.parseBackup = data => {
+  const fail = why => {
+    throw new Error(`Not a valid backup: ${why}`);
+  };
+  if (data?.format !== ZF.BACKUP_FORMAT || data.version !== 1) fail("unknown format");
+  if (!Array.isArray(data.folders) || !Array.isArray(data.tabs) || !Array.isArray(data.essentials ?? [])) fail("missing lists");
+  if (data.folders.length > 5000 || data.tabs.length > 20000 || (data.essentials ?? []).length > 1000) fail("too large");
+  const str = (v, max) => typeof v === "string" && v.length <= max;
+  const num = v => typeof v === "number" && Number.isFinite(v);
+  const folders = data.folders.map(f => {
+    if (!str(f?.id, 100) || !f.id || f.id === ZF.ROOT || !str(f.name, 500)) fail("bad folder");
+    if (f.parentId !== null && f.parentId !== undefined && !str(f.parentId, 100)) fail("bad folder parent");
+    return { id: f.id, name: f.name.trim() || "Folder", parentId: f.parentId ?? null, collapsed: f.collapsed === true, order: num(f.order) ? f.order : 0 };
+  });
+  const byId = new Map(folders.map(f => [f.id, f]));
+  if (byId.size !== folders.length) fail("duplicate folder ids");
+  for (const f of folders) {
+    if (f.parentId !== null && !byId.has(f.parentId)) fail("folder parent missing");
+    // No loops: following parents must reach the top.
+    const seen = new Set();
+    for (let p = f; p; p = p.parentId === null ? null : byId.get(p.parentId)) {
+      if (seen.has(p.id)) fail("folder loop");
+      seen.add(p.id);
+    }
+  }
+  const tabs = data.tabs.map(t => {
+    if (!str(t?.url, 8192) || !(t.place === ZF.ROOT || byId.has(t.place))) fail("bad tab");
+    if (t.originalUrl !== null && t.originalUrl !== undefined && !str(t.originalUrl, 8192)) fail("bad tab address");
+    return { place: t.place, order: num(t.order) ? t.order : null, url: t.url, originalUrl: t.originalUrl ?? null, title: str(t.title, 2000) ? t.title : "" };
+  });
+  const essentials = (data.essentials ?? []).map(e => {
+    if (!str(e?.url, 8192)) fail("bad Essential");
+    return { url: e.url, title: str(e.title, 2000) ? e.title : "" };
+  });
+  return { folders, tabs, essentials };
+};
+
+// Merges a backup in; nothing is removed. Folders with the same name and
+// parent are reused (so restoring twice doesn't duplicate them), open tabs
+// with a matching address are moved into place, and missing kept tabs are
+// reopened unloaded. Missing Essentials are reopened as pinned tabs.
+ZF.restoreFolders = async raw => {
+  const data = ZF.parseBackup(raw);
+  const report = { foldersCreated: 0, foldersMatched: 0, tabsMoved: 0, tabsOpened: 0, essentialsOpened: 0 };
+
+  const idMap = new Map();
+  await ZF.mutateFolders(folders => {
+    const pending = [...data.folders];
+    // Parents first (parseBackup guarantees every parent exists, without loops).
+    while (pending.length) {
+      const [f] = pending.splice(pending.findIndex(p => p.parentId === null || idMap.has(p.parentId)), 1);
+      const parentId = f.parentId === null ? null : idMap.get(f.parentId);
+      const taken = new Set(idMap.values());
+      const same = folders.find(x => (x.parentId ?? null) === parentId && x.name === f.name && !taken.has(x.id));
+      if (same) {
+        idMap.set(f.id, same.id);
+        report.foldersMatched++;
+      } else {
+        const folder = { id: ZF.newId(), name: f.name, parentId, collapsed: f.collapsed, order: f.order };
+        folders.push(folder);
+        idMap.set(f.id, folder.id);
+        report.foldersCreated++;
+      }
+    }
+  });
+
+  const open = (await browser.tabs.query({})).filter(t => !t.incognito);
+  const pool = new Map();
+  const offer = (url, tab) => url && (pool.get(url) ?? pool.set(url, []).get(url)).push(tab);
+  for (const tab of open.filter(t => !t.pinned)) {
+    offer(tab.url, tab);
+    offer(await browser.sessions.getTabValue(tab.id, ZF.ORIGINAL_URL_KEY).catch(() => undefined), tab);
+  }
+  const used = new Set();
+  const take = urls => {
+    for (const url of urls) {
+      const tab = (pool.get(url) ?? []).find(t => !used.has(t.id));
+      if (tab) {
+        used.add(tab.id);
+        return tab;
+      }
+    }
+    return null;
+  };
+  // Reopened tabs go to the last focused window (never a private one).
+  const target = await browser.windows.getLastFocused({ windowTypes: ["normal"] }).catch(() => null);
+  const windowId = target && !target.incognito ? target.id : (await browser.windows.getAll({ windowTypes: ["normal"] })).find(w => !w.incognito)?.id;
+
+  for (const t of data.tabs) {
+    let tab = take([t.url, t.originalUrl].filter(Boolean));
+    if (tab) report.tabsMoved++;
+    else {
+      if (windowId === undefined || !ZF.isWebUrl(t.url)) continue;
+      tab = await browser.tabs.create({ windowId, url: t.url, active: false, discarded: true, ...(t.title ? { title: t.title } : {}) }).catch(() => null);
+      if (!tab) continue;
+      report.tabsOpened++;
+    }
+    await ZF.setPlace(tab, t.place === ZF.ROOT ? ZF.ROOT : idMap.get(t.place));
+    if (t.originalUrl && ZF.isWebUrl(t.originalUrl)) await ZF.setMeta(tab.id, ZF.ORIGINAL_URL_KEY, t.originalUrl);
+    if (t.order !== null) await ZF.setMeta(tab.id, ZF.ORDER_KEY, t.order);
+  }
+
+  const pinnedUrls = new Set(open.filter(t => t.pinned).map(t => t.url));
+  for (const e of data.essentials) {
+    if (pinnedUrls.has(e.url) || windowId === undefined || !ZF.isWebUrl(e.url)) continue;
+    pinnedUrls.add(e.url);
+    const tab = take([e.url]);
+    if (tab) {
+      await ZF.setPlace(tab, null);
+      await browser.tabs.update(tab.id, { pinned: true });
+    } else if (await browser.tabs.create({ windowId, url: e.url, pinned: true, active: false }).catch(() => null)) {
+      report.essentialsOpened++;
+    }
+  }
+
+  await dropEmptyRecoveredFolders();
   await ZF.normalizeAllWindows();
-  return { folders: idMap.size, tabs: placed };
+  return report;
 };
 
 // Version 0.2.0 kept empty tab groups alive with hidden placeholder tabs.
@@ -635,6 +809,7 @@ ZF.REMOTE_CALLS = [
   "moveItems",
   "clearRegular",
   "importZenFolders",
+  "restoreFolders",
   "restoreFoldersIfMissing",
   "migrateNativeGroups",
   "updateSettings",

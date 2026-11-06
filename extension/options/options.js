@@ -144,6 +144,30 @@ document.getElementById("import-file").addEventListener("change", async event =>
   event.target.value = "";
 });
 
+// Backup
+document.getElementById("export-backup").addEventListener("click", async () => {
+  const data = await ZF.exportFolders();
+  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+  const link = Object.assign(document.createElement("a"), { href: url, download: `zen-folder-tools-${data.exportedAt.slice(0, 10)}.json` });
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  const n = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
+  document.getElementById("backup-result").textContent = `Exported ${n(data.folders.length, "folder")}, ${n(data.tabs.length, "kept tab")} and ${n(data.essentials.length, "Essential")}.`;
+});
+document.getElementById("restore-backup").addEventListener("click", () => document.getElementById("restore-file").click());
+document.getElementById("restore-file").addEventListener("change", async event => {
+  const file = event.target.files[0];
+  const result = document.getElementById("backup-result");
+  if (!file) return;
+  try {
+    const r = await ZF.restoreFolders(JSON.parse(await file.text()));
+    result.textContent = `Restored: ${r.foldersCreated} folders created, ${r.foldersMatched} already there; ${r.tabsMoved} open tabs moved, ${r.tabsOpened} reopened unloaded; ${r.essentialsOpened} Essentials reopened.`;
+  } catch (error) {
+    result.textContent = `Couldn't restore: ${error.message}`;
+  }
+  event.target.value = "";
+});
+
 document.getElementById("reset").addEventListener("click", async () => {
   await ZF.resetSettings();
   settings = await ZF.getSettings();

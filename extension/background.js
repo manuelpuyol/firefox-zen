@@ -224,13 +224,6 @@ async function setGlances(glances) {
   await browser.storage.session.set({ glances });
 }
 
-function isWebUrl(url) {
-  try {
-    return ["http:", "https:"].includes(new URL(url).protocol);
-  } catch {
-    return false;
-  }
-}
 
 async function openGlance(url, sourceTab) {
   const glances = await getGlances();
@@ -337,7 +330,7 @@ async function handleGlanceMessage(message, sender) {
     };
   }
   if (message.type === "glance-open") {
-    if (!glanceAllowedIn(sender.tab) || !(await ZF.getSettings()).glance.enabled || !isWebUrl(message.url)) return;
+    if (!glanceAllowedIn(sender.tab) || !(await ZF.getSettings()).glance.enabled || !ZF.isWebUrl(message.url)) return;
     // At most one Glance request per tab every half second.
     const now = Date.now();
     if (now - (lastGlanceRequest.get(sender.tab.id) ?? 0) < 500) return;

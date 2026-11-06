@@ -168,6 +168,14 @@
           <button type="button" id="import-zen">Import…</button>
           <input type="file" id="import-file" accept=".json,application/json" hidden>
         </div>
+        <div class="setting">
+          <div class="text"><span class="label">Back up folders</span><span class="hint">Save your folders, kept tabs and Essentials to a file. Restoring adds back what's missing without removing anything: open tabs with matching addresses move into their folders, and missing ones reopen unloaded. Private windows aren't included.</span><span class="hint" id="backup-result"></span></div>
+          <div class="buttons">
+            <button type="button" id="export-backup">Export…</button>
+            <button type="button" id="restore-backup">Restore…</button>
+          </div>
+          <input type="file" id="restore-file" accept=".json,application/json" hidden>
+        </div>
       </section>
 
       <footer>

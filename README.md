@@ -95,14 +95,16 @@ Change the timings, turn it off, or unload idle tabs immediately from the settin
 
 The gear button at the bottom of the sidebar (or `about:addons` → Zen Folder Tools → Preferences) opens a settings page with a live preview of your sidebar:
 
-- **Sidebar:** compact rows, Essentials tile size, folder counts, Clear button and its confirmation, unload-before-closing, animations, scrollbar (space for it is always reserved, so the list doesn't shift).
-- **Folders:** turning Firefox tab groups into folders, and importing folders from Zen.
+- **Sidebar:** Essentials tile size, folder counts, Clear button and its confirmation, unload-before-closing, animations, scrollbar (space for it is always reserved, so the list doesn't shift).
+- **Appearance:** text size, row height (corners follow; 32px is the old *Compact rows*), folder indent, and how much of the sidebar the Essentials may take before they scroll on their own.
+- **Folders:** turning Firefox tab groups into folders, importing folders from Zen, and backups: **Export…** saves your folders, kept tabs (folder, position, address, original address) and Essentials to a JSON file; **Restore…** adds back what's missing without removing anything. Folders with the same name and parent are reused, open tabs with a matching address move into their folder, and missing tabs reopen unloaded. The whole file is checked before anything changes. Private windows aren't exported.
 - **Auto-unload:** on/off, idle time, check interval, last run and *Unload idle tabs now*.
-- **Glance:** on/off and window size.
+- **Glance:** on/off, access to websites, and window size.
 - **Keyboard shortcuts:** current shortcuts, with a link to Firefox's shortcut editor.
 
 - **Reset kept tabs:** each kept tab remembers the URL it had when it was kept. A ↺ button appears in the sidebar when it has navigated away; also in the tab menu (**Reset to Original URL**) and Option+Shift+R. **Use Current Page as Original URL** changes it.
 - **Glance:** Option+click a link in a page (not inside embedded frames) to open it in a centred floating window.
+  - It needs access to websites, an optional permission: allow it from the settings page (turning Glance on asks for it). Glance's script runs in pages only while Glance is on and access is granted; otherwise the extension has no access to web pages at all.
   - Only real clicks count; a page can't open Glance windows by faking clicks. One Glance per window: Option+clicking again reuses it.
   - In a private window it opens a private Glance. It's off in container tabs, because keeping a container's cookies would need the *cookies* permission (which would let the extension read every site's cookies); Option+click does what Firefox normally does there.
   - Escape, or clicking back on the main window, closes it.
