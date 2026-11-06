@@ -79,7 +79,7 @@ Behaviour:
 - **Multi-select:** Shift+click selects a range, Cmd+click adds or removes a tab, Escape clears. It uses Firefox's own tab selection, so Cmd+W and the tab context menu act on every selected tab; dragging a selected tab moves them all (in order), and × or middle-click unloads or closes them all.
 - **Drag and drop:** drop on the top or bottom edge of a row to place before or after it (tabs and folders alike), or on the middle of a folder to move into it; drag between Essentials, kept and regular tabs. Firefox's real tab order follows the sidebar, moving only the tabs that need to move.
 - **Menus:** right-clicking a tab shows Firefox's own tab menu plus *Keep in Sidebar*, *Move to Regular Tabs*, *Move to New Folder* and the reset items. Right-clicking a folder or empty space offers *New Folder*, *New Subfolder*, *Rename Folder* and *Remove Folder (Keep Tabs)*.
-- **Firefox tab groups become folders:** on install, existing tab groups (including the leading-space subfolder convention) are converted. A group created later with Firefox's own menu becomes a folder once it's named. Turn this off in settings to keep Firefox's groups as they are.
+- **Firefox tab groups become folders:** on install, existing tab groups (including the leading-space subfolder convention) are converted. A group created later with Firefox's own menu becomes a top-level folder once its name has stopped changing for a second (drag it into another folder to nest it). Turn this off in settings to keep Firefox's groups as they are.
 
 ### Auto-unload
 

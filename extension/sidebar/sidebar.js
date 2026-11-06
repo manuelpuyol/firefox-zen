@@ -115,11 +115,18 @@ let renderSeq = 0;
 
 async function render({ force = false } = {}) {
   renderPending = false;
+  // A render that couldn't draw anyway must not cancel one that can (e.g.
+  // the forced render that shows the rename box), so defer before counting.
+  if (busy() && !force) {
+    renderPending = true;
+    return;
+  }
   const generation = editGeneration;
   const seq = ++renderSeq;
   const next = await ZF.buildView(windowId);
-  // A newer render started meanwhile; it has fresher data.
-  if (seq !== renderSeq) return;
+  // A newer render started meanwhile and has fresher data. Forced renders
+  // always draw.
+  if (!force && seq !== renderSeq) return;
   if (generation !== editGeneration) {
     scheduleRender();
     return;
@@ -454,9 +461,15 @@ window.addEventListener("blur", pointerReleased);
 function startRename(folderId) {
   renamingFolderId = folderId;
   renderPending = false;
+  clearTimeout(renderTimer);
   render({ force: true }).then(() => {
     const input = document.querySelector(`[data-rename-for="${folderId}"]`);
-    if (!input) return;
+    if (!input) {
+      // Never leave the sidebar stuck in rename mode.
+      if (renamingFolderId === folderId) renamingFolderId = null;
+      render({ force: true });
+      return;
+    }
     input.focus();
     input.select();
     const finish = async save => {
@@ -689,4 +702,4 @@ document.addEventListener("drop", async event => {
   setTimeout(reread, 4000);
 })();
 
-globalThis.zfTest = { selectedIds, render: () => render({ force: true }), view: () => view, dropTarget, windowId: () => windowId };
+globalThis.zfTest = { selectedIds, startRename, renaming: () => renamingFolderId, render: () => render({ force: true }), view: () => view, dropTarget, windowId: () => windowId };

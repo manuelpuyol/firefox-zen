@@ -172,12 +172,28 @@ ZF.buildView = async windowId => {
 };
 
 // Stored positions of kept tabs in `key`, across every window.
+// Unpositioned tabs are ranked exactly as buildView ranks them: by index
+// among the window's visible tabs (hidden tabs aren't shown or counted).
 async function keptTabsEverywhere(key) {
   const out = [];
-  for (const tab of await browser.tabs.query({ pinned: false })) {
-    if ((await ZF.getPlace(tab.id)) !== key) continue;
-    const order = await browser.sessions.getTabValue(tab.id, ZF.ORDER_KEY).catch(() => undefined);
-    out.push({ tab, order: typeof order === "number" ? order : UNPOSITIONED + tab.index });
+  const known = new Set((await ZF.loadFolders()).map(f => f.id));
+  const byWindow = new Map();
+  for (const tab of await browser.tabs.query({})) {
+    if (tab.hidden) continue;
+    if (!byWindow.has(tab.windowId)) byWindow.set(tab.windowId, []);
+    byWindow.get(tab.windowId).push(tab);
+  }
+  for (const tabs of byWindow.values()) {
+    tabs.sort((a, b) => a.index - b.index);
+    for (const [i, tab] of tabs.entries()) {
+      if (tab.pinned) continue;
+      let place = await ZF.getPlace(tab.id);
+      // Same fallback as buildView: a tab whose folder is gone shows at the top level.
+      if (place && place !== ZF.ROOT && !known.has(place)) place = ZF.ROOT;
+      if (place !== key) continue;
+      const order = await browser.sessions.getTabValue(tab.id, ZF.ORDER_KEY).catch(() => undefined);
+      out.push({ tab, order: typeof order === "number" ? order : UNPOSITIONED + i });
+    }
   }
   return out;
 }
@@ -373,10 +389,10 @@ ZF.moveItems = async (windowId, moving, key, { anchor = null, after = false, atS
         .map(({ tab, order }) => ({ kind: "tab", id: tab.id, order })),
     ].sort((a, b) => a.order - b.order || (a.kind === b.kind ? 0 : a.kind === "folder" ? -1 : 1));
     // Insert after this window's preceding item (or before its first one).
-    const anchorItem = items[at - 1] ?? null;
-    const anchorAt = anchorItem ? everywhere.findIndex(i => i.kind === anchorItem.kind && i.id === anchorItem.id) + 1 : 0;
-    const firstOfWindow = items[at] ? everywhere.findIndex(i => i.kind === items[at].kind && i.id === items[at].id) : -1;
-    const insertAt = anchorItem ? anchorAt : Math.max(0, firstOfWindow);
+    const indexOf = item => (item ? everywhere.findIndex(i => i.kind === item.kind && i.id === item.id) : -1);
+    const after = indexOf(items[at - 1]);
+    const before = indexOf(items[at]);
+    const insertAt = after !== -1 ? after + 1 : before !== -1 ? before : at === 0 ? 0 : everywhere.length;
     everywhere.splice(insertAt, 0, ...moving);
     placed = everywhere.map((item, i) => ({ ...item, order: i }));
     respaced = true;
