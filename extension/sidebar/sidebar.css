@@ -128,6 +128,17 @@ button {
   background: var(--hover);
 }
 
+.row.selected::before {
+  background: color-mix(in srgb, var(--selected) 55%, transparent);
+  outline: 1px solid var(--line);
+  outline-offset: -1px;
+}
+
+.tile.selected {
+  outline: 1.5px solid var(--accent);
+  outline-offset: -1.5px;
+}
+
 .row.active::before {
   background: var(--selected);
   box-shadow: 0 0.8px 1.5px rgb(0 0 0 / 0.05);

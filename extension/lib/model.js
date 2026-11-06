@@ -125,38 +125,50 @@ ZF.applyOrder = async (windowId, segments) => {
 // Re-sort Firefox's tab order to match the sidebar.
 ZF.normalizeOrder = async windowId => ZF.applyOrder(windowId, ZF.segments(await ZF.buildView(windowId)));
 
-// Move a tab to a section/folder. place: "essentials" | null (regular) |
-// ROOT | folderId. Position: before/after another tab, or the end.
-ZF.moveTab = async (tabId, place, { beforeId = null, afterId = null } = {}) => {
-  let tab = await browser.tabs.get(tabId);
-  const windowId = tab.windowId;
+// Move tabs (kept in the given order) to a section/folder. place:
+// "essentials" | null (regular) | ROOT | folderId. Position: before/after
+// another tab, or the end.
+ZF.moveTabs = async (tabIds, place, { beforeId = null, afterId = null } = {}) => {
+  if (!tabIds.length) return;
+  const anchor = beforeId ?? afterId;
+  if (anchor && tabIds.includes(anchor)) return;
+  const first = await browser.tabs.get(tabIds[0]);
+  const windowId = first.windowId;
 
   if (place === "essentials") {
-    await ZF.setPlace(tab, null);
-    if (!tab.pinned) tab = await browser.tabs.update(tabId, { pinned: true });
-    const anchor = beforeId ?? afterId;
+    for (const id of tabIds) {
+      const tab = await browser.tabs.get(id);
+      await ZF.setPlace(tab, null);
+      if (!tab.pinned) await browser.tabs.update(id, { pinned: true });
+    }
     if (anchor) {
       const other = await browser.tabs.get(anchor);
-      let index = other.index + (afterId ? 1 : 0);
-      if (tab.index < index) index--;
-      await browser.tabs.move(tabId, { index });
+      const pinned = (await browser.tabs.query({ windowId, pinned: true })).sort((a, b) => a.index - b.index).map(t => t.id);
+      const rest = pinned.filter(id => !tabIds.includes(id));
+      const at = rest.indexOf(other.id) + (afterId ? 1 : 0);
+      rest.splice(at, 0, ...tabIds);
+      await browser.tabs.move(rest, { windowId, index: 0 });
     }
     return;
   }
 
-  if (tab.pinned) tab = await browser.tabs.update(tabId, { pinned: false });
-  await ZF.setPlace(tab, place);
+  for (const id of tabIds) {
+    let tab = await browser.tabs.get(id);
+    if (tab.pinned) tab = await browser.tabs.update(id, { pinned: false });
+    await ZF.setPlace(tab, place);
+  }
 
   const view = await ZF.buildView(windowId);
   const segments = ZF.segments(view);
-  for (const s of segments) s.ids = s.ids.filter(id => id !== tabId);
+  for (const s of segments) s.ids = s.ids.filter(id => !tabIds.includes(id));
   const segment = segments.find(s => s.place === place);
-  const anchor = beforeId ?? afterId;
   const at = anchor ? segment.ids.indexOf(anchor) : -1;
-  if (at === -1) segment.ids.push(tabId);
-  else segment.ids.splice(at + (afterId ? 1 : 0), 0, tabId);
+  if (at === -1) segment.ids.push(...tabIds);
+  else segment.ids.splice(at + (afterId ? 1 : 0), 0, ...tabIds);
   await ZF.applyOrder(windowId, segments);
 };
+
+ZF.moveTab = (tabId, place, position) => ZF.moveTabs([tabId], place, position);
 
 // Move a folder under parentId (null = top level), before/after a sibling.
 ZF.moveFolder = async (folderId, parentId, { beforeId = null, afterId = null } = {}) => {
@@ -212,7 +224,8 @@ ZF.normalizeAllWindows = async () => {
 
 // Zen close: a loaded Essential or pinned-section tab is unloaded first; an
 // unloaded pinned-section tab is closed. Regular tabs just close.
-ZF.closeOrUnload = async (tabId, view, { unloadFirst = true } = {}) => {
+// `avoid`: other tabs being closed in the same batch; never switch to them.
+ZF.closeOrUnload = async (tabId, view, { unloadFirst = true, avoid = [] } = {}) => {
   const tab = await browser.tabs.get(tabId);
   if (!unloadFirst) return tab.pinned ? browser.tabs.update(tabId, { pinned: false }).then(() => browser.tabs.remove(tabId)) : browser.tabs.remove(tabId);
   const kept = tab.pinned || Boolean(await ZF.getPlace(tabId));
@@ -222,9 +235,11 @@ ZF.closeOrUnload = async (tabId, view, { unloadFirst = true } = {}) => {
     return browser.tabs.remove(tabId);
   }
   if (tab.active) {
-    const order = view ? ZF.displayOrder(view).filter(id => id !== tabId) : [];
-    const here = view ? ZF.displayOrder(view).indexOf(tabId) : -1;
-    const next = order[Math.max(0, here - 1)] ?? order[0];
+    const full = view ? ZF.displayOrder(view) : [];
+    const here = full.indexOf(tabId);
+    const ok = id => id !== tabId && !avoid.includes(id);
+    // Nearest tab above, otherwise below, that isn't part of this close.
+    const next = full.slice(0, Math.max(here, 0)).reverse().find(ok) ?? full.slice(here + 1).find(ok);
     if (!next) return;
     await browser.tabs.update(next, { active: true });
   }

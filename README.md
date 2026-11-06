@@ -76,6 +76,7 @@ Opens in Firefox's sidebar panel; `userChrome.css` hides Firefox's own vertical 
 Behaviour:
 
 - **Close to unload:** closing a loaded Essential or kept tab from the sidebar (× or middle-click) unloads it; closing it again while unloaded closes it (Essentials are never closed this way). Cmd+W can't be taken over by an extension, so it always closes.
+- **Multi-select:** Shift+click selects a range, Cmd+click adds or removes a tab, Escape clears. It uses Firefox's own tab selection, so Cmd+W and the tab context menu act on every selected tab; dragging a selected tab moves them all (in order), and × or middle-click unloads or closes them all.
 - **Drag and drop:** reorder tabs and folders, drop a tab on a folder to move it in, drop a folder on a folder to nest it, drag between Essentials, kept and regular tabs. Firefox's real tab order is kept in the same order as the sidebar.
 - **Menus:** right-clicking a tab shows Firefox's own tab menu plus *Keep in Sidebar*, *Move to Regular Tabs*, *Move to New Folder* and the reset items. Right-clicking a folder or empty space offers *New Folder*, *New Subfolder*, *Rename Folder* and *Remove Folder (Keep Tabs)*.
 - **Firefox tab groups become folders:** on install, existing tab groups (including the leading-space subfolder convention) are converted. A group created later with Firefox's own menu becomes a folder once it's named.

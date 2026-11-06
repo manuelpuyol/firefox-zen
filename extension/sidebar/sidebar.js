@@ -95,7 +95,7 @@ function scheduleRender() {
 
 // Only what the list shows; if it's unchanged, the DOM is left alone.
 function signature(v) {
-  const tab = t => [t.id, t.title, t.url, t.favIconUrl, t.active, t.discarded, t.audible, t.mutedInfo?.muted, t.zfOriginalUrl];
+  const tab = t => [t.id, t.title, t.url, t.favIconUrl, t.active, t.highlighted, t.discarded, t.audible, t.mutedInfo?.muted, t.zfOriginalUrl];
   return JSON.stringify([
     v.essentials.map(tab),
     v.folders.map(f => [f.id, f.name, f.parentId, f.order, f.collapsed]),
@@ -133,11 +133,15 @@ async function render({ force = false } = {}) {
   $("separator").classList.toggle("empty", view.regular.length === 0);
 }
 
+function isSelected(tab) {
+  return tab.highlighted && [...view.tabsById.values()].filter(t => t.highlighted).length > 1;
+}
+
 function tileFor(tab) {
   return el(
     "div",
     {
-      className: `tile${tab.active ? " active" : ""}${tab.discarded ? " discarded" : ""}`,
+      className: `tile${tab.active ? " active" : ""}${tab.discarded ? " discarded" : ""}${isSelected(tab) ? " selected" : ""}`,
       title: tab.title,
       draggable: true,
       dataset: { tabId: tab.id, kind: "essential" },
@@ -152,7 +156,7 @@ function tabRow(tab, depth, place) {
   return el(
     "div",
     {
-      className: `row tab${tab.active ? " active" : ""}${tab.discarded ? " discarded" : ""}`,
+      className: `row tab${tab.active ? " active" : ""}${tab.discarded ? " discarded" : ""}${isSelected(tab) ? " selected" : ""}`,
       title: tab.title,
       draggable: true,
       style: `--depth: ${depth}`,
@@ -220,7 +224,8 @@ function patchDone() {
 function onTabActivated({ tabId, previousTabId, windowId: activatedWindow }) {
   if (activatedWindow !== windowId) return;
   const next = view?.tabsById.get(tabId);
-  if (busy() || !next || !rowsFor(tabId).length) return scheduleRender();
+  // Only toggles classes, so it's safe even mid-click.
+  if (!next || !rowsFor(tabId).length) return scheduleRender();
   const previous = view.tabsById.get(previousTabId);
   if (previous) previous.active = false;
   next.active = true;
@@ -252,6 +257,97 @@ function onTabPatched(tabId, change, tab) {
 }
 
 // ---------------------------------------------------------------------------
+// Multi-select. Firefox's own tab highlighting is the selection, so Cmd+W and
+// the tab context menu act on every selected tab.
+// ---------------------------------------------------------------------------
+
+let anchorId = null;
+
+function selectedIds() {
+  if (!view) return [];
+  const ids = [...view.tabsById.values()].filter(t => t.highlighted).map(t => t.id);
+  return ids.length > 1 ? orderOnScreen(ids) : [];
+}
+
+// Tabs in the order they appear in the sidebar, skipping ones hidden inside
+// collapsed folders.
+function visibleTabOrder() {
+  return [...document.querySelectorAll("[data-tab-id]")]
+    .filter(node => node.classList.contains("tile") || node.getBoundingClientRect().height > 0)
+    .map(node => Number(node.dataset.tabId));
+}
+
+function orderOnScreen(ids) {
+  const order = ZF.displayOrder(view);
+  return [...ids].sort((a, b) => order.indexOf(a) - order.indexOf(b));
+}
+
+async function activeTabId() {
+  const [active] = await browser.tabs.query({ windowId, active: true });
+  return active?.id ?? null;
+}
+
+async function highlight(ids, activeId) {
+  const tabs = await browser.tabs.query({ windowId });
+  const index = new Map(tabs.map(t => [t.id, t.index]));
+  // Firefox makes the first listed tab the active one.
+  const ordered = [activeId, ...ids.filter(id => id !== activeId)].filter(id => index.has(id));
+  await browser.tabs.highlight({ windowId, tabs: ordered.map(id => index.get(id)), populate: false });
+}
+
+function showSelection(ids) {
+  const set = new Set(ids.length > 1 ? ids : []);
+  for (const tab of view?.tabsById.values() ?? []) tab.highlighted = ids.includes(tab.id);
+  for (const node of document.querySelectorAll("[data-tab-id]")) node.classList.toggle("selected", set.has(Number(node.dataset.tabId)));
+}
+
+async function selectRange(toId) {
+  const active = await activeTabId();
+  const from = anchorId ?? active;
+  const order = visibleTabOrder();
+  let a = order.indexOf(from);
+  const b = order.indexOf(toId);
+  if (a === -1) a = b;
+  const range = order.slice(Math.min(a, b), Math.max(a, b) + 1);
+  showSelection(range);
+  await highlight(range, range.includes(active) ? active : toId);
+}
+
+async function toggleSelected(id) {
+  const active = await activeTabId();
+  const current = new Set((await browser.tabs.query({ windowId, highlighted: true })).map(t => t.id));
+  if (current.has(id) && id !== active) current.delete(id);
+  else current.add(id);
+  const ids = [...current];
+  showSelection(ids);
+  anchorId = id;
+  await highlight(ids, active);
+}
+
+function onTabsHighlighted({ windowId: highlightedWindow, tabIds }) {
+  if (highlightedWindow !== windowId || !view) return;
+  showSelection(tabIds);
+  patchDone();
+}
+
+document.addEventListener("keydown", async event => {
+  if (event.key !== "Escape" || !selectedIds().length) return;
+  const active = await activeTabId();
+  if (!active) return;
+  showSelection([active]);
+  highlight([active], active);
+});
+
+// Close (or unload) one tab, or every selected tab when it's part of the selection.
+async function closeFromSidebar(tabId) {
+  const selection = selectedIds();
+  const ids = selection.includes(tabId) ? selection : [tabId];
+  for (const id of ids) {
+    await ZF.closeOrUnload(id, view, { unloadFirst: settings.sidebar.unloadOnClose, avoid: ids }).catch(() => {});
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Clicks
 // ---------------------------------------------------------------------------
 
@@ -279,9 +375,16 @@ document.addEventListener("click", async event => {
 
   const tabId = Number(item.dataset.tabId);
   const tab = view.tabsById.get(tabId);
-  if (action === "close") return ZF.closeOrUnload(tabId, view, { unloadFirst: settings.sidebar.unloadOnClose });
+  if (action === "close") return closeFromSidebar(tabId);
   if (action === "reset") return tab?.zfOriginalUrl && browser.tabs.update(tabId, { url: tab.zfOriginalUrl });
   if (action === "mute") return browser.tabs.update(tabId, { muted: !tab?.mutedInfo?.muted });
+  if (event.shiftKey) return selectRange(tabId);
+  if (event.metaKey || event.ctrlKey) return toggleSelected(tabId);
+  anchorId = tabId;
+  if (selectedIds().length) {
+    showSelection([tabId]);
+    return highlight([tabId], tabId);
+  }
   return browser.tabs.update(tabId, { active: true });
 });
 
@@ -291,7 +394,7 @@ document.addEventListener("auxclick", event => {
   const item = event.target.closest("[data-tab-id]");
   if (item) {
     event.preventDefault();
-    ZF.closeOrUnload(Number(item.dataset.tabId), view, { unloadFirst: settings.sidebar.unloadOnClose });
+    closeFromSidebar(Number(item.dataset.tabId));
   }
 });
 
@@ -398,10 +501,17 @@ function clearIndicators() {
 document.addEventListener("dragstart", event => {
   const item = event.target.closest?.("[draggable=true]");
   if (!item) return;
-  dragging = item.dataset.folderId ? { kind: "folder", id: item.dataset.folderId } : { kind: "tab", id: Number(item.dataset.tabId) };
+  if (item.dataset.folderId) {
+    dragging = { kind: "folder", id: item.dataset.folderId };
+  } else {
+    const id = Number(item.dataset.tabId);
+    const selection = selectedIds();
+    dragging = { kind: "tab", id, ids: selection.includes(id) ? selection : [id] };
+  }
   event.dataTransfer.setData(DRAG_TYPE, JSON.stringify(dragging));
   event.dataTransfer.effectAllowed = "move";
   item.classList.add("dragging");
+  for (const id of dragging.ids ?? []) for (const node of rowsFor(id)) node.classList.add("dragging");
 });
 
 document.addEventListener("dragend", () => {
@@ -422,15 +532,16 @@ function dropTarget(event, drag) {
   if (target.classList.contains("tile")) {
     if (drag.kind !== "tab") return null;
     const id = Number(target.dataset.tabId);
-    return { node: target, mark: x < 0.5 ? "drop-before" : "drop-after", run: () => ZF.moveTab(drag.id, "essentials", x < 0.5 ? { beforeId: id } : { afterId: id }) };
+    if (drag.ids.includes(id)) return null;
+    return { node: target, mark: x < 0.5 ? "drop-before" : "drop-after", run: () => ZF.moveTabs(drag.ids, "essentials", x < 0.5 ? { beforeId: id } : { afterId: id }) };
   }
   if (target.id === "essentials") {
     if (drag.kind !== "tab") return null;
-    return { node: target, mark: "drop-zone", run: () => ZF.moveTab(drag.id, "essentials") };
+    return { node: target, mark: "drop-zone", run: () => ZF.moveTabs(drag.ids, "essentials") };
   }
   if (target.classList.contains("folder")) {
     const folderId = target.dataset.folderId;
-    if (drag.kind === "tab") return { node: target, mark: "drop-into", run: () => ZF.moveTab(drag.id, folderId) };
+    if (drag.kind === "tab") return { node: target, mark: "drop-into", run: () => ZF.moveTabs(drag.ids, folderId) };
     if (drag.id === folderId) return null;
     const folder = view.folders.find(f => f.id === folderId);
     if (y < 0.25) return { node: target, mark: "drop-before", run: () => ZF.moveFolder(drag.id, folder.parentId ?? null, { beforeId: folderId }) };
@@ -444,20 +555,20 @@ function dropTarget(event, drag) {
       if (place === null) return null;
       return { node: target, mark: "drop-into", run: () => ZF.moveFolder(drag.id, place === ZF.ROOT ? null : place) };
     }
-    if (id === drag.id) return null;
+    if (drag.ids.includes(id)) return null;
     const before = y < 0.5;
-    return { node: target, mark: before ? "drop-before" : "drop-after", run: () => ZF.moveTab(drag.id, place, before ? { beforeId: id } : { afterId: id }) };
+    return { node: target, mark: before ? "drop-before" : "drop-after", run: () => ZF.moveTabs(drag.ids, place, before ? { beforeId: id } : { afterId: id }) };
   }
   if (target.id === "pinned") {
     if (drag.kind === "folder") return { node: target, mark: "drop-zone", run: () => ZF.moveFolder(drag.id, null) };
-    return { node: target, mark: "drop-zone", run: () => ZF.moveTab(drag.id, ZF.ROOT) };
+    return { node: target, mark: "drop-zone", run: () => ZF.moveTabs(drag.ids, ZF.ROOT) };
   }
   if (drag.kind !== "tab") return null;
   if (target.id === "separator") {
-    const first = view.regular.find(t => t.id !== drag.id);
-    return { node: target, mark: "drop-zone", run: () => ZF.moveTab(drag.id, null, first ? { beforeId: first.id } : {}) };
+    const first = view.regular.find(t => !drag.ids.includes(t.id));
+    return { node: target, mark: "drop-zone", run: () => ZF.moveTabs(drag.ids, null, first ? { beforeId: first.id } : {}) };
   }
-  return { node: target, mark: "drop-zone", run: () => ZF.moveTab(drag.id, null) };
+  return { node: target, mark: "drop-zone", run: () => ZF.moveTabs(drag.ids, null) };
 }
 
 document.addEventListener("dragover", event => {
@@ -475,7 +586,12 @@ document.addEventListener("drop", async event => {
   const drop = dropTarget(event, dragging);
   event.preventDefault();
   clearIndicators();
-  if (drop) await drop.run();
+  if (!drop) return;
+  const moved = dragging?.ids ?? [];
+  await drop.run();
+  // Moving tabs clears Firefox's selection; keep it, like a native drag.
+  const active = await activeTabId();
+  if (moved.length > 1 && moved.includes(active)) await highlight(moved, active);
 });
 
 // ---------------------------------------------------------------------------
@@ -488,6 +604,7 @@ document.addEventListener("drop", async event => {
     browser.tabs[event].addListener(scheduleRender);
   }
   browser.tabs.onActivated.addListener(onTabActivated);
+  browser.tabs.onHighlighted.addListener(onTabsHighlighted);
   browser.tabs.onUpdated.addListener(onTabPatched, { windowId, properties: ["title", "url", "favIconUrl", "discarded"] });
   browser.tabs.onUpdated.addListener(scheduleRender, {
     windowId,
@@ -504,4 +621,4 @@ document.addEventListener("drop", async event => {
   setTimeout(scheduleRender, 4000);
 })();
 
-globalThis.zfTest = { render: () => render({ force: true }), view: () => view, dropTarget, windowId: () => windowId };
+globalThis.zfTest = { selectedIds, render: () => render({ force: true }), view: () => view, dropTarget, windowId: () => windowId };
