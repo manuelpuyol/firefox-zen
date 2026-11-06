@@ -28,7 +28,9 @@ ZF.unloadSkipReason = (tab, staleMs, now = Date.now(), { keepEssentials = true, 
   const sharing = tab.sharingState;
   if (sharing && (sharing.camera || sharing.microphone || sharing.screen)) return "sharing";
   // Protected by the user or another extension; this one only protects pinned tabs.
-  if (tab.autoDiscardable === false && !tab.pinned) return "protected";
+  // Protected by the user or another extension. (Pinned tabs this extension
+  // protects are already skipped above while "Keep Essentials loaded" is on.)
+  if (tab.autoDiscardable === false) return "protected";
   if (tab.active) return "active";
   if (tab.highlighted) return "selected";
   if (tab.discarded) return "already-unloaded";

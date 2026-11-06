@@ -653,10 +653,13 @@ document.addEventListener("drop", async event => {
   browser.tabs.onActivated.addListener(onTabActivated);
   browser.tabs.onHighlighted.addListener(onTabsHighlighted);
   browser.tabs.onUpdated.addListener(onTabPatched, { windowId, properties: ["title", "url", "favIconUrl", "discarded"] });
-  browser.tabs.onUpdated.addListener(scheduleRender, {
-    windowId,
-    properties: ["audible", "mutedInfo", "pinned", "hidden"],
-  });
+  browser.tabs.onUpdated.addListener(
+    tabId => {
+      ZF.metaCache.delete(tabId);
+      scheduleRender();
+    },
+    { windowId, properties: ["audible", "mutedInfo", "pinned", "hidden"] }
+  );
   browser.storage.onChanged.addListener(changes => {
     if (changes.settings) applySettings(ZF.normalizeSettings(changes.settings.newValue));
     if (changes.folders) scheduleRender();
@@ -665,7 +668,7 @@ document.addEventListener("drop", async event => {
   // including ones that don't move a tab (e.g. keeping the first regular tab).
   browser.runtime.onMessage.addListener(message => {
     if (message?.type === "zf-changed") {
-      ZF.metaCache.clear();
+      ZF.metaCache = new Map();
       scheduleRender();
     }
   });
@@ -673,7 +676,7 @@ document.addEventListener("drop", async event => {
   await render({ force: true });
   // Session values for restored tabs can arrive a little after startup.
   const reread = () => {
-    ZF.metaCache.clear();
+    ZF.metaCache = new Map();
     scheduleRender();
   };
   setTimeout(reread, 1000);

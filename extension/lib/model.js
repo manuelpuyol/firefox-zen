@@ -51,9 +51,10 @@ ZF.restoreFoldersIfMissing = async () => {
     let newest = null;
     for (const win of await browser.windows.getAll({ windowTypes: ["normal"] })) {
       const backup = await browser.sessions.getWindowValue(win.id, ZF.BACKUP_KEY).catch(() => null);
-      if (backup?.folders?.length && (!newest || backup.savedAt > newest.savedAt)) newest = backup;
+      if (Array.isArray(backup?.folders) && (!newest || backup.savedAt > newest.savedAt)) newest = backup;
     }
-    if (newest) {
+    // The newest backup wins even if it's empty (you deleted every folder).
+    if (newest?.folders.length) {
       await ZF.mutateFolders(folders => folders.push(...newest.folders));
       report.restoredFromBackup = newest.folders.length;
     }
@@ -125,12 +126,18 @@ ZF.isDescendant = (folders, folderId, ancestorId) => {
 ZF.metaCache = null;
 
 async function readMeta(tab) {
-  const cached = ZF.metaCache?.get(tab.id);
+  if (tab.pinned) return { place: null };
+  // The cache is replaced (not cleared) on invalidation, so a read that
+  // started before a change can't put stale values into the new cache.
+  const cache = ZF.metaCache;
+  const cached = cache?.get(tab.id);
   if (cached) return cached;
   const get = key => browser.sessions.getTabValue(tab.id, key).catch(() => undefined);
-  const place = tab.pinned ? null : (await get(ZF.FOLDER_KEY)) ?? null;
-  const meta = place ? { place, original: await get(ZF.ORIGINAL_URL_KEY), order: await get(ZF.ORDER_KEY) } : { place: null };
-  ZF.metaCache?.set(tab.id, meta);
+  const place = (await get(ZF.FOLDER_KEY)) ?? null;
+  const meta = place
+    ? { place, original: await get(ZF.ORIGINAL_URL_KEY), order: await get(ZF.ORDER_KEY) }
+    : { place: null };
+  cache?.set(tab.id, meta);
   return meta;
 }
 
@@ -156,7 +163,8 @@ ZF.buildView = async windowId => {
     }
     tab.zfPlace = place;
     tab.zfOriginalUrl = original;
-    tab.zfOrder = typeof order === "number" ? order : UNPOSITIONED + i;
+    tab.zfOrderStored = typeof order === "number";
+    tab.zfOrder = tab.zfOrderStored ? order : UNPOSITIONED + i;
     if (!view.byPlace.has(place)) view.byPlace.set(place, []);
     view.byPlace.get(place).push(tab);
   });
@@ -223,19 +231,17 @@ ZF.applyOrder = async (windowId, desired) => {
     return;
   }
   const stay = longestIncreasing(desired.map(id => pos.get(id)));
+  const firstStay = Math.min(...stay);
+  // Left to right: tabs before the first staying tab go just before it (in
+  // order); every other moving tab goes right after its predecessor, which by
+  // then is already in its final place.
   for (let k = 0; k < desired.length; k++) {
     if (stay.has(k)) continue;
     const id = desired[k];
     const index = new Map((await browser.tabs.query({ windowId })).map(t => [t.id, t.index]));
     const from = index.get(id);
-    let to;
-    if (k === 0) {
-      to = index.get(desired[1]);
-      if (from < to) to--;
-    } else {
-      to = index.get(desired[k - 1]) + 1;
-      if (from < to) to--;
-    }
+    let to = k < firstStay ? index.get(desired[firstStay]) : index.get(desired[k - 1]) + 1;
+    if (from < to) to--;
     if (to !== from) await browser.tabs.move(id, { windowId, index: to });
   }
 };
@@ -321,14 +327,35 @@ ZF.moveItems = async (windowId, moving, key, { anchor = null, after = false, atS
     const i = items.findIndex(item => item.kind === anchor.kind && item.id === anchor.id);
     if (i !== -1) at = i + (after ? 1 : 0);
   }
-  items.splice(at, 0, ...moving.map(m => ({ ...m })));
 
-  // Renumber the whole folder: folders in storage, tabs in session values.
+  // Give the moving items positions between their new neighbours. Nothing
+  // else changes, so folders (shared by all windows) keep their place relative
+  // to other windows' tabs. Neighbouring tabs that have no stored position yet
+  // get their current one stored first, so they don't drift later.
+  for (const item of items) {
+    if (item.kind === "tab" && !item.tab.zfOrderStored) {
+      await browser.sessions.setTabValue(item.id, ZF.ORDER_KEY, item.order);
+      ZF.metaCache?.delete(item.id);
+    }
+  }
+  const prev = items[at - 1]?.order;
+  const next = items[at]?.order;
+  const n = moving.length;
+  const low = prev ?? (next !== undefined ? next - n - 1 : 0);
+  const high = next ?? low + n + 1;
+  const positions = moving.map((_, i) => low + ((high - low) * (i + 1)) / (n + 1));
+  // Too little room left between the neighbours (after many moves): space the
+  // whole folder out again.
+  const crowded = positions.some((p, i) => p <= (positions[i - 1] ?? low) || p >= high);
+  const placed = crowded
+    ? [...items.slice(0, at), ...moving, ...items.slice(at)].map((item, i) => ({ ...item, order: i }))
+    : moving.map((item, i) => ({ ...item, order: positions[i] }));
+
   const folderOrder = new Map();
-  for (const [i, item] of items.entries()) {
-    if (item.kind === "folder") folderOrder.set(item.id, i);
+  for (const item of placed) {
+    if (item.kind === "folder") folderOrder.set(item.id, item.order);
     else {
-      await browser.sessions.setTabValue(item.id, ZF.ORDER_KEY, i);
+      await browser.sessions.setTabValue(item.id, ZF.ORDER_KEY, item.order);
       ZF.metaCache?.delete(item.id);
     }
   }
@@ -345,16 +372,7 @@ ZF.moveItems = async (windowId, moving, key, { anchor = null, after = false, atS
 ZF.moveTab = (tabId, place, position) => ZF.moveTabs([tabId], place, position);
 
 // Move a folder under parentId (null = top level), before/after a sibling.
-ZF.moveFolder = async (folderId, parentId, { beforeId = null, afterId = null } = {}) => {
-  const [win] = await browser.windows.getAll({ windowTypes: ["normal"] });
-  const anchor = beforeId ?? afterId;
-  await ZF.local.moveItems(
-    win?.id,
-    [{ kind: "folder", id: folderId }],
-    parentId ?? ZF.ROOT,
-    anchor ? { anchor: { kind: "folder", id: anchor }, after: Boolean(afterId) } : {}
-  );
-};
+
 
 ZF.createFolder = (name, parentId = null) =>
   ZF.mutateFolders(folders => {
@@ -549,7 +567,6 @@ ZF.migrateNativeGroups = async () => {
 ZF.REMOTE_CALLS = [
   "createFolder",
   "updateFolder",
-  "moveFolder",
   "removeFolder",
   "moveTabs",
   "moveItems",

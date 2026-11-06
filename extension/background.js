@@ -67,8 +67,10 @@ browser.menus.onClicked.addListener(async (info, tab) => {
   if (!tab) return;
   if (info.menuItemId === "reset-tab") resetTab(tab);
   if (info.menuItemId === "set-original") markCurrentAsOriginal(tab);
-  if (info.menuItemId === "zf-keep") ZF.moveTab(tab.id, ZF.ROOT);
-  if (info.menuItemId === "zf-unkeep") ZF.moveTab(tab.id, null);
+  // Act on every selected tab when the clicked tab is part of the selection.
+  const selection = tab.highlighted ? (await browser.tabs.query({ windowId: tab.windowId, highlighted: true })).map(t => t.id) : [tab.id];
+  if (info.menuItemId === "zf-keep") ZF.moveTabs(selection, ZF.ROOT);
+  if (info.menuItemId === "zf-unkeep") ZF.moveTabs(selection, null);
   if (info.menuItemId === "zf-folder-with-tab") {
     const folder = await ZF.createFolder("New Folder", null);
     await ZF.moveTab(tab.id, folder.id);
@@ -90,9 +92,21 @@ function migrateSoon() {
 // Wait until the group has a name: Firefox asks for one right after creating
 // it, and converting before that would lose it. Unnamed groups are converted
 // on the next startup.
+// Firefox may update the name while it's being typed, so convert only once
+// it has stayed the same for a second.
+const pendingGroups = new Map();
 for (const event of ["onCreated", "onUpdated"]) {
   browser.tabGroups[event].addListener(group => {
-    if (group.title?.trim()) migrateSoon();
+    clearTimeout(pendingGroups.get(group.id));
+    if (!group.title?.trim()) return;
+    pendingGroups.set(
+      group.id,
+      setTimeout(async () => {
+        pendingGroups.delete(group.id);
+        const now = await browser.tabGroups.get(group.id).catch(() => null);
+        if (now?.title === group.title) migrateSoon();
+      }, 1000)
+    );
   });
 }
 
@@ -127,8 +141,10 @@ async function tellPages(message) {
   for (const tab of await browser.tabs.query({})) browser.tabs.sendMessage(tab.id, message).catch(() => {});
 }
 
-browser.runtime.onMessage.addListener(message => {
-  if (message?.type === "zf-unload-now") return ZF.unloadStaleTabs();
+browser.runtime.onMessage.addListener((message, sender) => {
+  if (message?.type === "zf-unload-now" && sender.id === browser.runtime.id && sender.url?.startsWith(EXTENSION_ORIGIN)) {
+    return ZF.unloadStaleTabs();
+  }
 });
 
 function setUp() {
@@ -237,7 +253,8 @@ const lastGlanceRequest = new Map();
 // (which would let it read every site's cookies), so it's off in container
 // tabs and Option+click behaves normally there.
 function glanceAllowedIn(tab) {
-  return !tab.cookieStoreId?.startsWith("firefox-container-");
+  // Fail closed: only tabs known to use the default or private cookie store.
+  return tab.cookieStoreId === "firefox-default" || tab.cookieStoreId === "firefox-private";
 }
 
 async function handleGlanceMessage(message, sender) {
