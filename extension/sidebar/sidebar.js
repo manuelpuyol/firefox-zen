@@ -705,7 +705,12 @@ document.addEventListener("drop", async event => {
   // including ones that don't move a tab (e.g. keeping the first regular tab).
   browser.runtime.onMessage.addListener(message => {
     if (message?.type === "zf-changed") {
-      ZF.metaCache = new Map();
+      // Drop only the tabs whose metadata changed. A new map rather than
+      // deletes, so a read already in flight can't put a stale value back.
+      if (Array.isArray(message.tabIds)) {
+        const changed = new Set(message.tabIds);
+        ZF.metaCache = new Map([...ZF.metaCache].filter(([id]) => !changed.has(id)));
+      } else ZF.metaCache = new Map();
       scheduleRender();
     }
   });

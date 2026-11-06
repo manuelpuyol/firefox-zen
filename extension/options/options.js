@@ -49,6 +49,11 @@ for (const input of document.querySelectorAll("[data-setting]")) {
   }
   input.addEventListener("change", () => {
     clearTimeout(pending.get(input));
+    // Turning Glance on asks for the site access it needs. The request has
+    // to be made right away, while handling the click.
+    if (input.dataset.setting === "glance.enabled" && input.checked) {
+      browser.permissions.request(ALL_SITES).then(showGlanceAccess, () => {});
+    }
     save(input);
   });
 }
@@ -107,6 +112,24 @@ document.getElementById("edit-shortcuts").addEventListener("click", () => {
   else browser.tabs.create({ url: "about:addons" });
 });
 
+// Glance needs access to websites (an optional permission); nothing else does.
+const ALL_SITES = { origins: ["<all_urls>"] };
+async function showGlanceAccess() {
+  const granted = await browser.permissions.contains(ALL_SITES);
+  const button = document.getElementById("glance-access");
+  button.textContent = granted ? "Remove access" : "Allow…";
+  document.getElementById("glance-access-hint").textContent = granted
+    ? "Granted. Glance's script runs in pages only while Glance is on. Removing access turns it off everywhere."
+    : "Glance needs it to notice Option+click on links. Without it, the extension can't see or change any web page.";
+}
+document.getElementById("glance-access").addEventListener("click", () => {
+  // No await before request: it must happen while handling the click.
+  const granted = document.getElementById("glance-access").textContent !== "Allow…";
+  (granted ? browser.permissions.remove(ALL_SITES) : browser.permissions.request(ALL_SITES)).then(showGlanceAccess, showGlanceAccess);
+});
+browser.permissions.onAdded.addListener(showGlanceAccess);
+browser.permissions.onRemoved.addListener(showGlanceAccess);
+
 document.getElementById("import-zen").addEventListener("click", () => document.getElementById("import-file").click());
 document.getElementById("import-file").addEventListener("change", async event => {
   const file = event.target.files[0];
@@ -141,5 +164,6 @@ browser.storage.onChanged.addListener(changes => {
   render();
   showLastRun();
   showShortcuts();
+  showGlanceAccess();
   setInterval(showLastRun, 60_000);
 })();

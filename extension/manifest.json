@@ -14,7 +14,11 @@
     "menus",
     "menus.overrideContext",
     "storage",
-    "alarms"
+    "alarms",
+    "scripting"
+  ],
+  "optional_host_permissions": [
+    "<all_urls>"
   ],
   "background": {
     "scripts": [
@@ -24,18 +28,6 @@
       "background.js"
     ]
   },
-  "content_scripts": [
-    {
-      "matches": [
-        "<all_urls>"
-      ],
-      "js": [
-        "glance-content.js"
-      ],
-      "run_at": "document_idle",
-      "all_frames": false
-    }
-  ],
   "commands": {
     "reset-tab": {
       "suggested_key": {

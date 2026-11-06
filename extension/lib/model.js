@@ -93,18 +93,26 @@ ZF.mutateFolders = fn => {
 
 ZF.getPlace = async tabId => (await browser.sessions.getTabValue(tabId, ZF.FOLDER_KEY).catch(() => undefined)) ?? null;
 
+// Every write of a tab's sidebar metadata goes through here, so the sidebars
+// can be told exactly which tabs changed (see notifyChanged).
+ZF.changedTabs = new Set();
+ZF.setMeta = async (tabId, key, value) => {
+  if (value === undefined) await browser.sessions.removeTabValue(tabId, key);
+  else await browser.sessions.setTabValue(tabId, key, value);
+  ZF.metaCache?.delete(tabId);
+  ZF.changedTabs.add(tabId);
+};
+
 ZF.setPlace = async (tab, place) => {
   if (place === null) {
-    await browser.sessions.removeTabValue(tab.id, ZF.FOLDER_KEY);
-    await browser.sessions.removeTabValue(tab.id, ZF.ORIGINAL_URL_KEY);
-    await browser.sessions.removeTabValue(tab.id, ZF.ORDER_KEY);
-    ZF.metaCache?.delete(tab.id);
+    await ZF.setMeta(tab.id, ZF.FOLDER_KEY, undefined);
+    await ZF.setMeta(tab.id, ZF.ORIGINAL_URL_KEY, undefined);
+    await ZF.setMeta(tab.id, ZF.ORDER_KEY, undefined);
     return;
   }
-  await browser.sessions.setTabValue(tab.id, ZF.FOLDER_KEY, place);
-  ZF.metaCache?.delete(tab.id);
+  await ZF.setMeta(tab.id, ZF.FOLDER_KEY, place);
   const original = await browser.sessions.getTabValue(tab.id, ZF.ORIGINAL_URL_KEY).catch(() => undefined);
-  if (!original && ZF.isRealUrl(tab.url)) await browser.sessions.setTabValue(tab.id, ZF.ORIGINAL_URL_KEY, tab.url);
+  if (!original && ZF.isRealUrl(tab.url)) await ZF.setMeta(tab.id, ZF.ORIGINAL_URL_KEY, tab.url);
 };
 
 ZF.childrenOf = (folders, parentId) =>
@@ -121,8 +129,9 @@ ZF.isDescendant = (folders, folderId, ancestorId) => {
 
 // Everything the sidebar needs for one window.
 // Per-tab session values, cached by pages that redraw often (the sidebar sets
-// ZF.metaCache = new Map()). They only change through the background, which
-// then sends "zf-changed", and the sidebar clears the cache.
+// ZF.metaCache = new Map()). They only change through the background
+// (ZF.setMeta), which then sends "zf-changed" with the tabs that changed, and
+// the sidebar drops just those from its cache.
 ZF.metaCache = null;
 
 async function readMeta(tab) {
@@ -365,8 +374,7 @@ ZF.moveItems = async (windowId, moving, key, { anchor = null, after = false, atS
   // get their current one stored first, so they don't drift later.
   for (const item of items) {
     if (item.kind === "tab" && !item.tab.zfOrderStored) {
-      await browser.sessions.setTabValue(item.id, ZF.ORDER_KEY, item.order);
-      ZF.metaCache?.delete(item.id);
+      await ZF.setMeta(item.id, ZF.ORDER_KEY, item.order);
     }
   }
   const prev = items[at - 1]?.order;
@@ -406,8 +414,7 @@ ZF.moveItems = async (windowId, moving, key, { anchor = null, after = false, atS
   for (const item of placed) {
     if (item.kind === "folder") folderOrder.set(item.id, item.order);
     else {
-      await browser.sessions.setTabValue(item.id, ZF.ORDER_KEY, item.order);
-      ZF.metaCache?.delete(item.id);
+      await ZF.setMeta(item.id, ZF.ORDER_KEY, item.order);
     }
   }
   await ZF.mutateFolders(all => {
@@ -647,7 +654,11 @@ let notifyTimer = null;
 ZF.notifyChanged = () => {
   if (!ZF.IS_BACKGROUND) return;
   clearTimeout(notifyTimer);
-  notifyTimer = setTimeout(() => browser.runtime.sendMessage({ type: "zf-changed" }).catch(() => {}), 20);
+  notifyTimer = setTimeout(() => {
+    const tabIds = [...ZF.changedTabs];
+    ZF.changedTabs.clear();
+    browser.runtime.sendMessage({ type: "zf-changed", tabIds }).catch(() => {});
+  }, 20);
 };
 
 for (const name of ZF.REMOTE_CALLS) {

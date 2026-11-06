@@ -25,7 +25,7 @@ async function resetTab(tab) {
 }
 
 async function markCurrentAsOriginal(tab) {
-  if (ZF.isRealUrl(tab.url)) await browser.sessions.setTabValue(tab.id, ZF.ORIGINAL_URL_KEY, tab.url);
+  if (ZF.isRealUrl(tab.url)) await ZF.setMeta(tab.id, ZF.ORIGINAL_URL_KEY, tab.url);
   ZF.notifyChanged();
 }
 
@@ -171,7 +171,10 @@ browser.storage.onChanged.addListener(changes => {
   if (changes.settings && before !== after) ZF.configureAutoUnload();
   const glanceBefore = changes.settings?.oldValue?.glance?.enabled !== false;
   const glanceAfter = changes.settings?.newValue?.glance?.enabled !== false;
-  if (changes.settings && glanceBefore !== glanceAfter) tellPages({ type: "glance-settings", enabled: glanceAfter });
+  if (changes.settings && glanceBefore !== glanceAfter) {
+    tellPages({ type: "glance-settings", enabled: glanceAfter });
+    syncGlanceScript();
+  }
   // Turning conversion back on converts existing groups.
   if (changes.settings && !changes.settings.oldValue?.folders?.convertTabGroups && changes.settings.newValue?.folders?.convertTabGroups) migrateSoon();
 });
@@ -189,6 +192,7 @@ browser.runtime.onMessage.addListener((message, sender) => {
 });
 
 function setUp() {
+  syncGlanceScript();
   ZF.configureAutoUnload().catch(() => {});
   createMenus();
   ZF.closeOldPlaceholders().catch(() => {});
@@ -287,6 +291,32 @@ async function expandGlance(windowId) {
 }
 
 const lastGlanceRequest = new Map();
+
+// The Glance script only runs in pages while Glance is on and the user has
+// granted access to websites (an optional permission, asked for from the
+// settings page). Otherwise the extension has no access to pages at all.
+const GLANCE_SCRIPT = "glance";
+const ALL_SITES = { origins: ["<all_urls>"] };
+let glanceSync = Promise.resolve();
+function syncGlanceScript() {
+  glanceSync = glanceSync.then(async () => {
+    const want = (await ZF.getSettings()).glance.enabled && (await browser.permissions.contains(ALL_SITES));
+    const have = (await browser.scripting.getRegisteredContentScripts({ ids: [GLANCE_SCRIPT] })).length > 0;
+    if (want && !have) {
+      await browser.scripting.registerContentScripts([
+        { id: GLANCE_SCRIPT, matches: ["<all_urls>"], js: ["glance-content.js"], runAt: "document_idle", allFrames: false, persistAcrossSessions: true },
+      ]);
+      // Pages that are already open get it too, so they don't need a reload.
+      for (const tab of await browser.tabs.query({ url: ["http://*/*", "https://*/*"], discarded: false })) {
+        browser.scripting.executeScript({ target: { tabId: tab.id }, files: ["glance-content.js"] }).catch(() => {});
+      }
+    }
+    if (!want && have) await browser.scripting.unregisterContentScripts({ ids: [GLANCE_SCRIPT] });
+  }).catch(error => console.error("Glance script:", error));
+  return glanceSync;
+}
+browser.permissions.onAdded.addListener(syncGlanceScript);
+browser.permissions.onRemoved.addListener(syncGlanceScript);
 
 // Only Glance messages are answered here; returning nothing for others lets
 // other listeners reply.

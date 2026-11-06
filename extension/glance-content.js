@@ -1,5 +1,11 @@
 "use strict";
 
+// Registered by the background only while Glance is on and site access is
+// granted; it may also be injected into pages that were already open, so
+// make sure it only runs once per page.
+if (!globalThis.zfGlanceLoaded) {
+globalThis.zfGlanceLoaded = true;
+
 // Off until the background answers: Glance setting, whether this tab can use
 // Glance (not in container tabs), and whether this page is inside a Glance.
 let glance = { enabled: false, allowed: false, inGlance: false };
@@ -37,3 +43,4 @@ window.addEventListener("keydown", event => {
     browser.runtime.sendMessage({ type: "glance-escape" });
   }
 });
+}
