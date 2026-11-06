@@ -348,11 +348,14 @@ button {
   opacity: 0.4;
 }
 
+/* The line starts where the dropped item's icon will go, so it's clear which
+   folder level it lands in. drop-child: first item inside an open folder. */
 .drop-before::after,
 .drop-after::after {
+  --drop-depth: var(--depth, 0);
   content: "";
   position: absolute;
-  left: calc(var(--row-inset) + 4px);
+  left: calc(var(--row-inset) + var(--row-padding) + var(--drop-depth) * var(--indent) - 2px);
   right: calc(var(--row-inset) + 4px);
   height: 2px;
   border-radius: 1px;
@@ -366,6 +369,10 @@ button {
 
 .drop-after::after {
   bottom: 0;
+}
+
+.drop-child::after {
+  --drop-depth: calc(var(--depth, 0) + 1);
 }
 
 .tile.drop-before::after,

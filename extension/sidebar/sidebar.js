@@ -561,7 +561,7 @@ const DRAG_TYPE = "application/x-zen-folder-tools";
 
 function clearIndicators() {
   for (const node of document.querySelectorAll(".drop-before, .drop-after, .drop-into, .drop-zone")) {
-    node.classList.remove("drop-before", "drop-after", "drop-into", "drop-zone");
+    node.classList.remove("drop-before", "drop-after", "drop-into", "drop-zone", "drop-child");
   }
 }
 
@@ -623,7 +623,7 @@ function dropTarget(event, drag) {
       // Below an open folder's header is its first item; below a closed one is the next item.
       return folder.collapsed
         ? into(parentKey, { anchor: self, after: true }, target, "drop-after")
-        : into(folderId, { atStart: true }, target, "drop-after");
+        : into(folderId, { atStart: true }, target, "drop-after drop-child");
     }
     return into(folderId, {}, target, "drop-into");
   }
@@ -653,7 +653,7 @@ document.addEventListener("dragover", event => {
   if (!drop) return;
   event.preventDefault();
   event.dataTransfer.dropEffect = "move";
-  drop.node.classList.add(drop.mark);
+  drop.node.classList.add(...drop.mark.split(" "));
 });
 
 document.addEventListener("drop", async event => {
