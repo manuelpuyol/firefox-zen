@@ -69,17 +69,17 @@ Run `./install.sh` again to apply changes.
 Opens in Firefox's sidebar panel; `userChrome.css` hides Firefox's own vertical tabs while it's open. It's translucent like the rest of the window: `user.js` turns on `browser.tabs.allow_transparent_browser`, and `userChrome.css` keeps web pages on a solid background so pages without one don't turn see-through. Top to bottom:
 
 - **Essentials:** Firefox's pinned tabs, as tiles.
-- **Kept tabs:** tabs and folders that stay around, with **real nested subfolders** (subfolders are listed before a folder's own tabs, like Zen). Folders can be empty. Each folder shows a `+N` count of every tab inside it, subfolders included.
-- **Separator with Clear:** closes all regular tabs.
+- **Kept tabs:** tabs and folders that stay around, with **real nested subfolders**. Subfolders are ordinary items: drag them anywhere among a folder's tabs. Folders can be empty. Each folder shows a `+N` count of every tab inside it, subfolders included.
+- **Separator with Clear:** closes all regular tabs (asks "Close N tabs?" first; click again to confirm).
 - **Regular tabs**, then **New Tab**.
 
 Behaviour:
 
 - **Close to unload:** closing a loaded Essential or kept tab from the sidebar (× or middle-click) unloads it; closing it again while unloaded closes it (Essentials are never closed this way). Cmd+W can't be taken over by an extension, so it always closes.
 - **Multi-select:** Shift+click selects a range, Cmd+click adds or removes a tab, Escape clears. It uses Firefox's own tab selection, so Cmd+W and the tab context menu act on every selected tab; dragging a selected tab moves them all (in order), and × or middle-click unloads or closes them all.
-- **Drag and drop:** reorder tabs and folders, drop a tab on a folder to move it in, drop a folder on a folder to nest it, drag between Essentials, kept and regular tabs. Firefox's real tab order is kept in the same order as the sidebar.
+- **Drag and drop:** drop on the top or bottom edge of a row to place before or after it (tabs and folders alike), or on the middle of a folder to move into it; drag between Essentials, kept and regular tabs. Firefox's real tab order follows the sidebar, moving only the tabs that need to move.
 - **Menus:** right-clicking a tab shows Firefox's own tab menu plus *Keep in Sidebar*, *Move to Regular Tabs*, *Move to New Folder* and the reset items. Right-clicking a folder or empty space offers *New Folder*, *New Subfolder*, *Rename Folder* and *Remove Folder (Keep Tabs)*.
-- **Firefox tab groups become folders:** on install, existing tab groups (including the leading-space subfolder convention) are converted. A group created later with Firefox's own menu becomes a folder once it's named.
+- **Firefox tab groups become folders:** on install, existing tab groups (including the leading-space subfolder convention) are converted. A group created later with Firefox's own menu becomes a folder once it's named. Turn this off in settings to keep Firefox's groups as they are.
 
 ### Auto-unload
 
@@ -95,7 +95,8 @@ Change the timings, turn it off, or unload idle tabs immediately from the settin
 
 The gear button at the bottom of the sidebar (or `about:addons` → Zen Folder Tools → Preferences) opens a settings page with a live preview of your sidebar:
 
-- **Sidebar:** compact rows, Essentials tile size, folder counts, Clear button, unload-before-closing, animations.
+- **Sidebar:** compact rows, Essentials tile size, folder counts, Clear button and its confirmation, unload-before-closing, animations, scrollbar (space for it is always reserved, so the list doesn't shift).
+- **Folders:** turning Firefox tab groups into folders, and importing folders from Zen.
 - **Auto-unload:** on/off, idle time, check interval, last run and *Unload idle tabs now*.
 - **Glance:** on/off and window size.
 - **Keyboard shortcuts:** current shortcuts, with a link to Firefox's shortcut editor.

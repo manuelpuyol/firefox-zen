@@ -18,6 +18,11 @@ const ZF = (globalThis.ZF ??= {});
 ZF.ROOT = "root";
 ZF.FOLDER_KEY = "zfFolder";
 ZF.ORIGINAL_URL_KEY = "originalUrl";
+// Position of a kept tab among the items (tabs and subfolders) of its folder.
+ZF.ORDER_KEY = "zfOrder";
+// Tabs without a stored position sort after positioned items, in Firefox's
+// order (that's how everything was laid out before positions existed).
+const UNPOSITIONED = 1_000_000;
 
 ZF.isRealUrl = url => Boolean(url) && !url.startsWith("about:") && !url.startsWith(browser.runtime.getURL(""));
 
@@ -91,9 +96,12 @@ ZF.setPlace = async (tab, place) => {
   if (place === null) {
     await browser.sessions.removeTabValue(tab.id, ZF.FOLDER_KEY);
     await browser.sessions.removeTabValue(tab.id, ZF.ORIGINAL_URL_KEY);
+    await browser.sessions.removeTabValue(tab.id, ZF.ORDER_KEY);
+    ZF.metaCache?.delete(tab.id);
     return;
   }
   await browser.sessions.setTabValue(tab.id, ZF.FOLDER_KEY, place);
+  ZF.metaCache?.delete(tab.id);
   const original = await browser.sessions.getTabValue(tab.id, ZF.ORIGINAL_URL_KEY).catch(() => undefined);
   if (!original && ZF.isRealUrl(tab.url)) await browser.sessions.setTabValue(tab.id, ZF.ORIGINAL_URL_KEY, tab.url);
 };
@@ -111,14 +119,26 @@ ZF.isDescendant = (folders, folderId, ancestorId) => {
 };
 
 // Everything the sidebar needs for one window.
+// Per-tab session values, cached by pages that redraw often (the sidebar sets
+// ZF.metaCache = new Map()). They only change through the background, which
+// then sends "zf-changed", and the sidebar clears the cache.
+ZF.metaCache = null;
+
+async function readMeta(tab) {
+  const cached = ZF.metaCache?.get(tab.id);
+  if (cached) return cached;
+  const get = key => browser.sessions.getTabValue(tab.id, key).catch(() => undefined);
+  const place = tab.pinned ? null : (await get(ZF.FOLDER_KEY)) ?? null;
+  const meta = place ? { place, original: await get(ZF.ORIGINAL_URL_KEY), order: await get(ZF.ORDER_KEY) } : { place: null };
+  ZF.metaCache?.set(tab.id, meta);
+  return meta;
+}
+
 ZF.buildView = async windowId => {
   const [allTabs, folders] = await Promise.all([browser.tabs.query({ windowId }), ZF.loadFolders()]);
   const tabs = allTabs.filter(t => !t.hidden).sort((a, b) => a.index - b.index);
   const known = new Set(folders.map(f => f.id));
-  const places = await Promise.all(tabs.map(t => (t.pinned ? null : ZF.getPlace(t.id))));
-  const originals = await Promise.all(
-    tabs.map((t, i) => (places[i] ? browser.sessions.getTabValue(t.id, ZF.ORIGINAL_URL_KEY).catch(() => undefined) : undefined))
-  );
+  const metas = await Promise.all(tabs.map(readMeta));
 
   const view = { windowId, folders, essentials: [], byPlace: new Map(), regular: [], activeId: null, tabsById: new Map() };
   tabs.forEach((tab, i) => {
@@ -128,48 +148,100 @@ ZF.buildView = async windowId => {
       view.essentials.push(tab);
       return;
     }
-    let place = places[i];
+    let { place, original, order } = metas[i];
     if (place && place !== ZF.ROOT && !known.has(place)) place = ZF.ROOT;
     if (!place) {
       view.regular.push(tab);
       return;
     }
     tab.zfPlace = place;
-    tab.zfOriginalUrl = originals[i];
+    tab.zfOriginalUrl = original;
+    tab.zfOrder = typeof order === "number" ? order : UNPOSITIONED + i;
     if (!view.byPlace.has(place)) view.byPlace.set(place, []);
     view.byPlace.get(place).push(tab);
   });
   return view;
 };
 
-// Pinned-section order: each folder's subfolders, then its own tabs; the
-// top-level pinned tabs come after all folders.
-ZF.segments = view => {
+// Items of a folder (or ROOT): its subfolders and tabs, in one order.
+ZF.itemsOf = (view, key) => {
+  const parentId = key === ZF.ROOT ? null : key;
+  const items = [
+    ...view.folders.filter(f => (f.parentId ?? null) === parentId).map(f => ({ kind: "folder", id: f.id, order: f.order ?? 0, folder: f })),
+    ...(view.byPlace.get(key) ?? []).map(t => ({ kind: "tab", id: t.id, order: t.zfOrder, tab: t })),
+  ];
+  // Stable for ties: folders first, as before positions existed.
+  return items.sort((a, b) => a.order - b.order || (a.kind === b.kind ? 0 : a.kind === "folder" ? -1 : 1));
+};
+
+// Kept tabs in the order the sidebar shows them.
+ZF.keptOrder = view => {
   const out = [];
-  const visit = folder => {
-    for (const child of ZF.childrenOf(view.folders, folder.id)) visit(child);
-    out.push({ place: folder.id, ids: (view.byPlace.get(folder.id) ?? []).map(t => t.id) });
+  const visit = key => {
+    for (const item of ZF.itemsOf(view, key)) {
+      if (item.kind === "tab") out.push(item.id);
+      else visit(item.id);
+    }
   };
-  for (const folder of ZF.childrenOf(view.folders, null)) visit(folder);
-  out.push({ place: ZF.ROOT, ids: (view.byPlace.get(ZF.ROOT) ?? []).map(t => t.id) });
-  out.push({ place: null, ids: view.regular.map(t => t.id) });
+  visit(ZF.ROOT);
   return out;
 };
 
-ZF.applyOrder = async (windowId, segments) => {
-  const desired = segments.flatMap(s => s.ids);
-  const current = (await browser.tabs.query({ windowId, pinned: false }))
-    .filter(t => !t.hidden)
-    .sort((a, b) => a.index - b.index)
-    .map(t => t.id);
+// Firefox's tab order: kept tabs as the sidebar shows them, then regular tabs.
+ZF.desiredOrder = view => [...ZF.keptOrder(view), ...view.regular.map(t => t.id)];
+
+// Indices of a longest increasing subsequence of `seq`.
+function longestIncreasing(seq) {
+  const tails = [];
+  const prev = new Array(seq.length);
+  for (let i = 0; i < seq.length; i++) {
+    let lo = 0;
+    let hi = tails.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (seq[tails[mid]] < seq[i]) lo = mid + 1;
+      else hi = mid;
+    }
+    prev[i] = lo ? tails[lo - 1] : -1;
+    tails[lo] = i;
+  }
+  const out = new Set();
+  for (let i = tails.at(-1) ?? -1; i !== -1; i = prev[i]) out.add(i);
+  return out;
+}
+
+// Put Firefox's tab order in the given order, moving as few tabs as possible:
+// tabs already in the right relative order stay put, others are moved next to
+// their new neighbour. A single drag moves one tab, not the whole window.
+ZF.applyOrder = async (windowId, desired) => {
+  const visible = (await browser.tabs.query({ windowId, pinned: false })).filter(t => !t.hidden).sort((a, b) => a.index - b.index);
+  const current = visible.map(t => t.id);
   if (desired.length === current.length && desired.every((id, i) => id === current[i])) return;
-  // Hidden tabs (other extensions) may sit in between; moving to the end
-  // keeps the visible order without having to account for them.
-  await browser.tabs.move(desired, { windowId, index: -1 });
+  const pos = new Map(current.map((id, i) => [id, i]));
+  if (desired.length !== current.length || desired.some(id => !pos.has(id))) {
+    await browser.tabs.move(desired, { windowId, index: -1 });
+    return;
+  }
+  const stay = longestIncreasing(desired.map(id => pos.get(id)));
+  for (let k = 0; k < desired.length; k++) {
+    if (stay.has(k)) continue;
+    const id = desired[k];
+    const index = new Map((await browser.tabs.query({ windowId })).map(t => [t.id, t.index]));
+    const from = index.get(id);
+    let to;
+    if (k === 0) {
+      to = index.get(desired[1]);
+      if (from < to) to--;
+    } else {
+      to = index.get(desired[k - 1]) + 1;
+      if (from < to) to--;
+    }
+    if (to !== from) await browser.tabs.move(id, { windowId, index: to });
+  }
 };
 
 // Re-sort Firefox's tab order to match the sidebar.
-ZF.normalizeOrder = async windowId => ZF.applyOrder(windowId, ZF.segments(await ZF.buildView(windowId)));
+ZF.normalizeOrder = async windowId => ZF.applyOrder(windowId, ZF.desiredOrder(await ZF.buildView(windowId)));
 
 // Move tabs (kept in the given order) to a section/folder. place:
 // "essentials" | null (regular) | ROOT | folderId. Position: before/after
@@ -198,45 +270,96 @@ ZF.moveTabs = async (tabIds, place, { beforeId = null, afterId = null } = {}) =>
     return;
   }
 
+  if (place !== null) {
+    const anchor = beforeId ?? afterId;
+    return ZF.local.moveItems(
+      windowId,
+      tabIds.map(id => ({ kind: "tab", id })),
+      place,
+      anchor ? { anchor: { kind: "tab", id: anchor }, after: Boolean(afterId) } : {}
+    );
+  }
+
   for (const id of tabIds) {
     let tab = await browser.tabs.get(id);
     if (tab.pinned) tab = await browser.tabs.update(id, { pinned: false });
-    await ZF.setPlace(tab, place);
+    await ZF.setPlace(tab, null);
+  }
+  const view = await ZF.buildView(windowId);
+  const regular = view.regular.map(t => t.id).filter(id => !tabIds.includes(id));
+  const at = anchor ? regular.indexOf(anchor) : -1;
+  if (at === -1) regular.push(...tabIds);
+  else regular.splice(at + (afterId ? 1 : 0), 0, ...tabIds);
+  await ZF.applyOrder(windowId, [...ZF.keptOrder(view), ...regular]);
+};
+
+// Move tabs and/or folders into a folder (or ROOT), before/after another item
+// of that folder, at its start, or at its end. Subfolders and tabs share one
+// order, so a subfolder can sit anywhere among a folder's tabs.
+ZF.moveItems = async (windowId, moving, key, { anchor = null, after = false, atStart = false } = {}) => {
+  if (!moving.length || (anchor && moving.some(m => m.kind === anchor.kind && m.id === anchor.id))) return;
+  const parentId = key === ZF.ROOT ? null : key;
+  const movingFolders = moving.filter(m => m.kind === "folder").map(m => m.id);
+  const folders = await ZF.loadFolders();
+  // A folder can't go inside itself or its own subfolders.
+  if (parentId && movingFolders.some(id => id === parentId || ZF.isDescendant(folders, parentId, id))) return;
+
+  for (const m of moving) {
+    if (m.kind !== "tab") continue;
+    let tab = await browser.tabs.get(m.id);
+    if (tab.pinned) tab = await browser.tabs.update(m.id, { pinned: false });
+    await ZF.setPlace(tab, key);
   }
 
   const view = await ZF.buildView(windowId);
-  const segments = ZF.segments(view);
-  for (const s of segments) s.ids = s.ids.filter(id => !tabIds.includes(id));
-  const segment = segments.find(s => s.place === place);
-  const at = anchor ? segment.ids.indexOf(anchor) : -1;
-  if (at === -1) segment.ids.push(...tabIds);
-  else segment.ids.splice(at + (afterId ? 1 : 0), 0, ...tabIds);
-  await ZF.applyOrder(windowId, segments);
+  view.folders = view.folders.map(f => (movingFolders.includes(f.id) ? { ...f, parentId } : f));
+  const isMoving = item => moving.some(m => m.kind === item.kind && m.id === item.id);
+  const items = ZF.itemsOf(view, key).filter(item => !isMoving(item));
+  let at = items.length;
+  if (atStart) at = 0;
+  else if (anchor) {
+    const i = items.findIndex(item => item.kind === anchor.kind && item.id === anchor.id);
+    if (i !== -1) at = i + (after ? 1 : 0);
+  }
+  items.splice(at, 0, ...moving.map(m => ({ ...m })));
+
+  // Renumber the whole folder: folders in storage, tabs in session values.
+  const folderOrder = new Map();
+  for (const [i, item] of items.entries()) {
+    if (item.kind === "folder") folderOrder.set(item.id, i);
+    else {
+      await browser.sessions.setTabValue(item.id, ZF.ORDER_KEY, i);
+      ZF.metaCache?.delete(item.id);
+    }
+  }
+  await ZF.mutateFolders(all => {
+    for (const f of all) {
+      if (movingFolders.includes(f.id)) f.parentId = parentId;
+      if (folderOrder.has(f.id)) f.order = folderOrder.get(f.id);
+    }
+  });
+  if (movingFolders.length) await ZF.normalizeAllWindows();
+  else await ZF.normalizeOrder(windowId);
 };
 
 ZF.moveTab = (tabId, place, position) => ZF.moveTabs([tabId], place, position);
 
 // Move a folder under parentId (null = top level), before/after a sibling.
 ZF.moveFolder = async (folderId, parentId, { beforeId = null, afterId = null } = {}) => {
-  const moved = await ZF.mutateFolders(folders => {
-    if (folderId === parentId || (parentId && ZF.isDescendant(folders, parentId, folderId))) return false;
-    const folder = folders.find(f => f.id === folderId);
-    if (!folder) return false;
-    const siblings = ZF.childrenOf(folders, parentId).filter(f => f.id !== folderId);
-    const anchor = beforeId ?? afterId;
-    const at = anchor ? siblings.findIndex(f => f.id === anchor) : -1;
-    if (at === -1) siblings.push(folder);
-    else siblings.splice(at + (afterId ? 1 : 0), 0, folder);
-    folder.parentId = parentId;
-    siblings.forEach((f, i) => (f.order = i));
-    return true;
-  });
-  if (moved) await ZF.normalizeAllWindows();
+  const [win] = await browser.windows.getAll({ windowTypes: ["normal"] });
+  const anchor = beforeId ?? afterId;
+  await ZF.local.moveItems(
+    win?.id,
+    [{ kind: "folder", id: folderId }],
+    parentId ?? ZF.ROOT,
+    anchor ? { anchor: { kind: "folder", id: anchor }, after: Boolean(afterId) } : {}
+  );
 };
 
 ZF.createFolder = (name, parentId = null) =>
   ZF.mutateFolders(folders => {
-    const folder = { id: ZF.newId(), name, parentId, collapsed: false, order: ZF.childrenOf(folders, parentId).length };
+    // After everything in the parent (tabs without a position sort at UNPOSITIONED+).
+    const folder = { id: ZF.newId(), name, parentId, collapsed: false, order: 2 * UNPOSITIONED + folders.length };
     folders.push(folder);
     return folder;
   });
@@ -293,7 +416,7 @@ ZF.closeOrUnload = async (tabId, view, { unloadFirst = true, avoid = [] } = {}) 
   await browser.tabs.discard(tabId);
 };
 
-ZF.displayOrder = view => [...view.essentials.map(t => t.id), ...ZF.segments(view).flatMap(s => s.ids)];
+ZF.displayOrder = view => [...view.essentials.map(t => t.id), ...ZF.desiredOrder(view)];
 
 // Close every regular tab (Zen's "Clear").
 ZF.clearRegular = async windowId => {
@@ -360,6 +483,7 @@ ZF.importZenFolders = async data => {
 // Version 0.2.0 kept empty tab groups alive with hidden placeholder tabs.
 // Folders don't need them any more; close any that are left.
 ZF.closeOldPlaceholders = async () => {
+  if ((await browser.storage.local.get("placeholdersCleaned")).placeholdersCleaned) return;
   const leftovers = [];
   for (const tab of await browser.tabs.query({})) {
     const marked = await browser.sessions.getTabValue(tab.id, "folderPlaceholder").catch(() => undefined);
@@ -367,6 +491,7 @@ ZF.closeOldPlaceholders = async () => {
     if (marked || looksLikeOne) leftovers.push(tab.id);
   }
   if (leftovers.length) await browser.tabs.remove(leftovers);
+  await browser.storage.local.set({ placeholdersCleaned: true });
 };
 
 // Convert Firefox tab groups into folders (subfolders use the leading-space
@@ -402,7 +527,9 @@ ZF.migrateNativeGroups = async () => {
       while (stack.length > depth) stack.pop();
       const parentId = stack.at(-1) ?? null;
       const folder = await ZF.local.createFolder(title.trim() || "Folder", parentId);
-      await ZF.local.updateFolder(folder.id, { collapsed: Boolean(group.collapsed) });
+      // Like Zen: subfolders above the folder's own (unpositioned) tabs.
+      const siblings = (await ZF.loadFolders()).filter(f => (f.parentId ?? null) === parentId && f.id !== folder.id).length;
+      await ZF.local.updateFolder(folder.id, { collapsed: Boolean(group.collapsed), order: siblings });
       stack.push(folder.id);
       for (const tab of groupTabs) await ZF.setPlace(tab, folder.id);
       if (groupTabs.length) await browser.tabs.ungroup(groupTabs.map(t => t.id));
@@ -425,6 +552,7 @@ ZF.REMOTE_CALLS = [
   "moveFolder",
   "removeFolder",
   "moveTabs",
+  "moveItems",
   "clearRegular",
   "importZenFolders",
   "restoreFoldersIfMissing",

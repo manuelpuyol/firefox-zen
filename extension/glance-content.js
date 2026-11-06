@@ -1,12 +1,16 @@
 "use strict";
 
-let glanceEnabled = true;
-// Off until the background confirms this tab can use Glance (not in containers).
-let glanceAllowed = false;
-browser.runtime.sendMessage({ type: "glance-context" }).then(r => (glanceAllowed = Boolean(r?.allowed)), () => {});
-browser.storage.local.get("settings").then(({ settings }) => (glanceEnabled = settings?.glance?.enabled !== false));
-browser.storage.onChanged.addListener(changes => {
-  if (changes.settings) glanceEnabled = changes.settings.newValue?.glance?.enabled !== false;
+// Off until the background answers: Glance setting, whether this tab can use
+// Glance (not in container tabs), and whether this page is inside a Glance.
+let glance = { enabled: false, allowed: false, inGlance: false };
+browser.runtime.sendMessage({ type: "glance-context" }).then(
+  reply => (glance = { ...glance, ...reply }),
+  () => {}
+);
+browser.runtime.onMessage.addListener(message => {
+  if (message?.type !== "glance-settings") return;
+  if ("enabled" in message) glance.enabled = message.enabled;
+  if ("inGlance" in message) glance.inGlance = message.inGlance;
 });
 
 // Alt+click on a link opens it in Glance instead of following it.
@@ -14,7 +18,8 @@ document.addEventListener(
   "click",
   event => {
     // Only real clicks: a page can dispatch synthetic Alt+clicks.
-    if (!event.isTrusted || !glanceEnabled || !glanceAllowed || !event.altKey || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return;
+    if (!event.isTrusted || !glance.enabled || !glance.allowed) return;
+    if (!event.altKey || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return;
     const link = event.target instanceof Element && event.target.closest("a[href]");
     if (!link) return;
     const url = new URL(link.getAttribute("href"), document.baseURI);
@@ -26,9 +31,9 @@ document.addEventListener(
   true
 );
 
-// Escape closes Glance (only acts inside a Glance window), unless the page used it.
+// Escape closes the Glance this page is in, unless the page used the key.
 window.addEventListener("keydown", event => {
-  if (event.isTrusted && event.key === "Escape" && !event.defaultPrevented && window.top === window) {
+  if (glance.inGlance && event.isTrusted && event.key === "Escape" && !event.defaultPrevented) {
     browser.runtime.sendMessage({ type: "glance-escape" });
   }
 });

@@ -41,6 +41,10 @@
           <div class="text"><span class="label">Clear button</span><span class="hint">Closes all regular tabs below the separator.</span></div>
           <input type="checkbox" class="switch" data-setting="sidebar.showClear">
         </div>
+        <div class="setting" data-depends="sidebar.showClear">
+          <div class="text"><span class="label">Confirm Clear</span><span class="hint">Clear asks "Close N tabs?" first; click again to confirm.</span></div>
+          <input type="checkbox" class="switch" data-setting="sidebar.confirmClear">
+        </div>
         <div class="setting">
           <div class="text"><span class="label">Unload before closing</span><span class="hint">Closing a loaded kept tab from the sidebar unloads it first; closing it again removes it. Essentials are only ever unloaded from the sidebar.</span></div>
           <input type="checkbox" class="switch" data-setting="sidebar.unloadOnClose">
@@ -48,6 +52,10 @@
         <div class="setting">
           <div class="text"><span class="label">Animations</span><span class="hint">Animate opening and closing folders.</span></div>
           <input type="checkbox" class="switch" data-setting="sidebar.animations">
+        </div>
+        <div class="setting">
+          <div class="text"><span class="label">Show scrollbar</span><span class="hint">Space for it is always kept, so opening a folder doesn't shift the list.</span></div>
+          <input type="checkbox" class="switch" data-setting="sidebar.showScrollbar">
         </div>
       </section>
 
@@ -119,6 +127,10 @@
 
       <section class="card">
         <h2>Folders</h2>
+        <div class="setting">
+          <div class="text"><span class="label">Turn Firefox tab groups into folders</span><span class="hint">Groups made with Firefox's own menu become sidebar folders once named. When off, they stay Firefox groups and their tabs show as regular tabs here.</span></div>
+          <input type="checkbox" class="switch" data-setting="folders.convertTabGroups">
+        </div>
         <div class="setting">
           <div class="text"><span class="label">Import folders from Zen</span><span class="hint">Pick the file made by <code>export_zen_folders.py</code>. Recreates your Zen folders and moves open tabs with matching addresses into them.</span><span class="hint" id="import-result"></span></div>
           <button type="button" id="import-zen">Import…</button>

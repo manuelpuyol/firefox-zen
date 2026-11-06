@@ -5,7 +5,17 @@
   const ZF = (globalThis.ZF ??= {});
 
   ZF.SETTINGS_DEFAULTS = Object.freeze({
-    sidebar: { compact: false, tileSize: 64, showCounts: true, showClear: true, unloadOnClose: true, animations: true },
+    sidebar: {
+      compact: false,
+      tileSize: 64,
+      showCounts: true,
+      showClear: true,
+      confirmClear: true,
+      unloadOnClose: true,
+      animations: true,
+      showScrollbar: true,
+    },
+    folders: { convertTabGroups: true },
     autoUnload: { enabled: true, staleMinutes: 60, scanIntervalMinutes: 5, keepEssentialsLoaded: true, neverUnload: "" },
     glance: { enabled: true, size: 80 },
   });
@@ -30,6 +40,11 @@
         showClear: bool(sb.showClear, d.sidebar.showClear),
         unloadOnClose: bool(sb.unloadOnClose, d.sidebar.unloadOnClose),
         animations: bool(sb.animations, d.sidebar.animations),
+        confirmClear: bool(sb.confirmClear, d.sidebar.confirmClear),
+        showScrollbar: bool(sb.showScrollbar, d.sidebar.showScrollbar),
+      },
+      folders: {
+        convertTabGroups: bool(s.folders?.convertTabGroups, d.folders.convertTabGroups),
       },
       autoUnload: {
         enabled: bool(au.enabled, d.autoUnload.enabled),

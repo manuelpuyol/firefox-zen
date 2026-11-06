@@ -38,6 +38,13 @@ body.no-animations {
 html {
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;
+  /* Space for the scrollbar is always reserved, so the list doesn't shift
+     sideways when opening a folder makes it scrollable. */
+  scrollbar-gutter: stable;
+}
+
+html.hide-scrollbar {
+  scrollbar-width: none;
 }
 
 html, body {
@@ -267,6 +274,11 @@ button {
   color: var(--text-dim);
   padding: 2px 6px;
   border-radius: 6px;
+}
+
+#clear.confirming {
+  color: light-dark(#b42318, #ff8a80);
+  background: color-mix(in srgb, currentColor 12%, transparent);
 }
 
 #clear:hover {

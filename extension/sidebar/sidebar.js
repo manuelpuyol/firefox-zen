@@ -21,6 +21,10 @@ let renderPending = false;
 let renderTimer = null;
 let pointerDown = false;
 let lastSignature = null;
+// Set by in-place patches; the signature is recomputed once at the next
+// render instead of after every patch.
+let patched = false;
+let selectedCount = 0;
 // Bumped by local changes (e.g. folder toggles). A redraw that started reading
 // state before a change would show stale data, so it's discarded and redone.
 let editGeneration = 0;
@@ -33,6 +37,7 @@ function applySettings(next) {
   document.body.classList.toggle("hide-counts", !sb.showCounts);
   document.body.classList.toggle("hide-clear", !sb.showClear);
   document.body.classList.toggle("no-animations", !sb.animations);
+  document.documentElement.classList.toggle("hide-scrollbar", !sb.showScrollbar);
   document.documentElement.style.setProperty("--tile-size", `${sb.tileSize}px`);
 }
 
@@ -117,24 +122,28 @@ async function render({ force = false } = {}) {
     renderPending = true;
     return;
   }
+  if (patched && view) lastSignature = signature(view);
+  patched = false;
   view = next;
+  selectedCount = [...view.tabsById.values()].filter(t => t.highlighted).length;
   const sig = signature(view);
   if (sig === lastSignature && !force) return;
   lastSignature = sig;
 
   $("essentials").replaceChildren(...view.essentials.map(tileFor));
 
-  const pinned = [];
-  for (const folder of ZF.childrenOf(view.folders, null)) pinned.push(folderBlock(folder, 0));
-  for (const tab of view.byPlace.get(ZF.ROOT) ?? []) pinned.push(tabRow(tab, 0, ZF.ROOT));
-  $("pinned").replaceChildren(...pinned);
+  $("pinned").replaceChildren(...ZF.itemsOf(view, ZF.ROOT).map(item => itemNode(item, 0, ZF.ROOT)));
 
   $("regular").replaceChildren(...view.regular.map(tab => tabRow(tab, 0, "regular")));
   $("separator").classList.toggle("empty", view.regular.length === 0);
 }
 
 function isSelected(tab) {
-  return tab.highlighted && [...view.tabsById.values()].filter(t => t.highlighted).length > 1;
+  return tab.highlighted && selectedCount > 1;
+}
+
+function itemNode(item, depth, key) {
+  return item.kind === "folder" ? folderBlock(item.folder, depth) : tabRow(item.tab, depth, key);
 }
 
 function tileFor(tab) {
@@ -202,8 +211,8 @@ function folderBlock(folder, depth) {
 
   // A collapsed folder still shows its active tab (CSS keeps that row).
   const children = el("div", { className: `children${folder.collapsed ? " collapsed" : ""}` });
-  for (const child of ZF.childrenOf(view.folders, folder.id)) children.append(folderBlock(child, depth + 1));
-  for (const tab of view.byPlace.get(folder.id) ?? []) children.append(tabRow(tab, depth + 1, folder.id));
+  // Subfolders and tabs in one order: a subfolder can sit anywhere.
+  for (const item of ZF.itemsOf(view, folder.id)) children.append(itemNode(item, depth + 1, folder.id));
   return el("div", { className: "folder-block", dataset: { folderBlock: folder.id } }, [row, children]);
 }
 
@@ -218,7 +227,7 @@ function rowsFor(tabId) {
 }
 
 function patchDone() {
-  lastSignature = signature(view);
+  patched = true;
 }
 
 function onTabActivated({ tabId, previousTabId, windowId: activatedWindow }) {
@@ -356,7 +365,7 @@ document.addEventListener("click", async event => {
   const item = event.target.closest("[data-tab-id], [data-folder-id]");
   if (event.target.closest("#new-tab")) return browser.tabs.create({ windowId });
   if (event.target.closest("#settings")) return browser.runtime.openOptionsPage();
-  if (event.target.closest("#clear")) return ZF.clearRegular(windowId);
+  if (event.target.closest("#clear")) return onClear();
   if (!item || event.target.closest(".rename")) return;
 
   if (item.dataset.folderId) {
@@ -367,7 +376,7 @@ document.addEventListener("click", async event => {
     const block = item.parentElement;
     block.querySelector(":scope > .children")?.classList.toggle("collapsed", folder.collapsed);
     item.querySelector(".icon")?.replaceWith(folderIcon(!folder.collapsed));
-    lastSignature = signature(view);
+    patched = true;
     await ZF.updateFolder(folder.id, { collapsed: folder.collapsed });
     editGeneration++;
     return;
@@ -387,6 +396,27 @@ document.addEventListener("click", async event => {
   }
   return browser.tabs.update(tabId, { active: true });
 });
+
+// Clear asks once ("Close 5 tabs?") unless confirmation is turned off.
+let clearTimer = null;
+
+function resetClear() {
+  clearTimeout(clearTimer);
+  $("clear").classList.remove("confirming");
+  $("clear").textContent = "↓ Clear";
+}
+
+function onClear() {
+  const button = $("clear");
+  if (!settings.sidebar.confirmClear || button.classList.contains("confirming")) {
+    resetClear();
+    return ZF.clearRegular(windowId);
+  }
+  const n = view.regular.length;
+  button.textContent = `Close ${n} tab${n === 1 ? "" : "s"}?`;
+  button.classList.add("confirming");
+  clearTimer = setTimeout(resetClear, 3000);
+}
 
 // Middle-click: unload (or close) like the close button.
 document.addEventListener("auxclick", event => {
@@ -539,30 +569,38 @@ function dropTarget(event, drag) {
     if (drag.kind !== "tab") return null;
     return { node: target, mark: "drop-zone", run: () => ZF.moveTabs(drag.ids, "essentials") };
   }
+  const moving = drag.kind === "folder" ? [{ kind: "folder", id: drag.id }] : drag.ids.map(id => ({ kind: "tab", id }));
+  // A folder can't be dropped inside itself or its own subfolders.
+  const canEnter = key => drag.kind !== "folder" || (key !== drag.id && !(key !== ZF.ROOT && ZF.isDescendant(view.folders, key, drag.id)));
+  const into = (key, opts, node, mark) =>
+    canEnter(key) ? { node, mark, run: () => ZF.moveItems(windowId, moving, key, opts) } : null;
+
   if (target.classList.contains("folder")) {
     const folderId = target.dataset.folderId;
-    if (drag.kind === "tab") return { node: target, mark: "drop-into", run: () => ZF.moveTabs(drag.ids, folderId) };
-    if (drag.id === folderId) return null;
+    if (drag.kind === "folder" && drag.id === folderId) return null;
     const folder = view.folders.find(f => f.id === folderId);
-    if (y < 0.25) return { node: target, mark: "drop-before", run: () => ZF.moveFolder(drag.id, folder.parentId ?? null, { beforeId: folderId }) };
-    if (y > 0.75) return { node: target, mark: "drop-after", run: () => ZF.moveFolder(drag.id, folder.parentId ?? null, { afterId: folderId }) };
-    return { node: target, mark: "drop-into", run: () => ZF.moveFolder(drag.id, folderId) };
+    const parentKey = folder.parentId ?? ZF.ROOT;
+    const self = { kind: "folder", id: folderId };
+    if (y < 0.25) return into(parentKey, { anchor: self }, target, "drop-before");
+    if (y > 0.75) {
+      // Below an open folder's header is its first item; below a closed one is the next item.
+      return folder.collapsed
+        ? into(parentKey, { anchor: self, after: true }, target, "drop-after")
+        : into(folderId, { atStart: true }, target, "drop-after");
+    }
+    return into(folderId, {}, target, "drop-into");
   }
   if (target.classList.contains("tab")) {
-    const place = target.dataset.place === "regular" ? null : target.dataset.place;
     const id = Number(target.dataset.tabId);
-    if (drag.kind === "folder") {
-      if (place === null) return null;
-      return { node: target, mark: "drop-into", run: () => ZF.moveFolder(drag.id, place === ZF.ROOT ? null : place) };
-    }
-    if (drag.ids.includes(id)) return null;
+    if (drag.kind === "tab" && drag.ids.includes(id)) return null;
     const before = y < 0.5;
-    return { node: target, mark: before ? "drop-before" : "drop-after", run: () => ZF.moveTabs(drag.ids, place, before ? { beforeId: id } : { afterId: id }) };
+    if (target.dataset.place === "regular") {
+      if (drag.kind === "folder") return null;
+      return { node: target, mark: before ? "drop-before" : "drop-after", run: () => ZF.moveTabs(drag.ids, null, before ? { beforeId: id } : { afterId: id }) };
+    }
+    return into(target.dataset.place, { anchor: { kind: "tab", id }, after: !before }, target, before ? "drop-before" : "drop-after");
   }
-  if (target.id === "pinned") {
-    if (drag.kind === "folder") return { node: target, mark: "drop-zone", run: () => ZF.moveFolder(drag.id, null) };
-    return { node: target, mark: "drop-zone", run: () => ZF.moveTabs(drag.ids, ZF.ROOT) };
-  }
+  if (target.id === "pinned") return into(ZF.ROOT, {}, target, "drop-zone");
   if (drag.kind !== "tab") return null;
   if (target.id === "separator") {
     const first = view.regular.find(t => !drag.ids.includes(t.id));
@@ -599,10 +637,19 @@ document.addEventListener("drop", async event => {
 // ---------------------------------------------------------------------------
 
 (async () => {
+  ZF.metaCache = new Map();
   windowId = (await browser.windows.getCurrent()).id;
-  for (const event of ["onCreated", "onRemoved", "onMoved", "onAttached", "onDetached", "onReplaced"]) {
-    browser.tabs[event].addListener(scheduleRender);
-  }
+  // Only events for this window; other windows' sidebars handle theirs.
+  const here = id => id === windowId && scheduleRender();
+  browser.tabs.onCreated.addListener(tab => here(tab.windowId));
+  browser.tabs.onRemoved.addListener((tabId, info) => {
+    ZF.metaCache.delete(tabId);
+    here(info.windowId);
+  });
+  browser.tabs.onMoved.addListener((_id, info) => here(info.windowId));
+  browser.tabs.onAttached.addListener((_id, info) => here(info.newWindowId));
+  browser.tabs.onDetached.addListener((_id, info) => here(info.oldWindowId));
+  browser.tabs.onReplaced.addListener(() => scheduleRender());
   browser.tabs.onActivated.addListener(onTabActivated);
   browser.tabs.onHighlighted.addListener(onTabsHighlighted);
   browser.tabs.onUpdated.addListener(onTabPatched, { windowId, properties: ["title", "url", "favIconUrl", "discarded"] });
@@ -617,13 +664,20 @@ document.addEventListener("drop", async event => {
   // The background says so after any change to folders or tab placement,
   // including ones that don't move a tab (e.g. keeping the first regular tab).
   browser.runtime.onMessage.addListener(message => {
-    if (message?.type === "zf-changed") scheduleRender();
+    if (message?.type === "zf-changed") {
+      ZF.metaCache.clear();
+      scheduleRender();
+    }
   });
   applySettings(await ZF.getSettings());
   await render({ force: true });
   // Session values for restored tabs can arrive a little after startup.
-  setTimeout(scheduleRender, 1000);
-  setTimeout(scheduleRender, 4000);
+  const reread = () => {
+    ZF.metaCache.clear();
+    scheduleRender();
+  };
+  setTimeout(reread, 1000);
+  setTimeout(reread, 4000);
 })();
 
 globalThis.zfTest = { selectedIds, render: () => render({ force: true }), view: () => view, dropTarget, windowId: () => windowId };

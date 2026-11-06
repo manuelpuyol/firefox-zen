@@ -80,7 +80,11 @@ browser.menus.onClicked.addListener(async (info, tab) => {
 // into a sidebar folder once it has a name.
 let migrating = Promise.resolve();
 function migrateSoon() {
-  migrating = migrating.then(() => ZF.migrateNativeGroups()).catch(() => {});
+  migrating = migrating
+    .then(async () => {
+      if ((await ZF.getSettings()).folders.convertTabGroups) await ZF.migrateNativeGroups();
+    })
+    .catch(() => {});
 }
 
 // Wait until the group has a name: Firefox asks for one right after creating
@@ -110,7 +114,18 @@ browser.storage.onChanged.addListener(changes => {
   const before = JSON.stringify(changes.settings?.oldValue?.autoUnload ?? null);
   const after = JSON.stringify(changes.settings?.newValue?.autoUnload ?? null);
   if (changes.settings && before !== after) ZF.configureAutoUnload();
+  const glanceBefore = changes.settings?.oldValue?.glance?.enabled !== false;
+  const glanceAfter = changes.settings?.newValue?.glance?.enabled !== false;
+  if (changes.settings && glanceBefore !== glanceAfter) tellPages({ type: "glance-settings", enabled: glanceAfter });
+  // Turning conversion back on converts existing groups.
+  if (changes.settings && !changes.settings.oldValue?.folders?.convertTabGroups && changes.settings.newValue?.folders?.convertTabGroups) migrateSoon();
 });
+
+// Rare (a setting changed), so messaging every tab is fine; pages don't
+// listen to storage changes, which would wake them on every folder change.
+async function tellPages(message) {
+  for (const tab of await browser.tabs.query({})) browser.tabs.sendMessage(tab.id, message).catch(() => {});
+}
 
 browser.runtime.onMessage.addListener(message => {
   if (message?.type === "zf-unload-now") return ZF.unloadStaleTabs();
@@ -134,11 +149,17 @@ browser.runtime.onStartup.addListener(setUp);
 // Alt+Shift+G turns it into a regular tab next to the one it came from.
 // ---------------------------------------------------------------------------
 
+// Kept in memory (focus changes check it often), backed by storage.session
+// in case the background page is unloaded.
+let glancesCache = null;
+
 async function getGlances() {
-  return (await browser.storage.session.get("glances")).glances ?? {};
+  glancesCache ??= (await browser.storage.session.get("glances")).glances ?? {};
+  return glancesCache;
 }
 
 async function setGlances(glances) {
+  glancesCache = glances;
   await browser.storage.session.set({ glances });
 }
 
@@ -180,6 +201,8 @@ async function openGlance(url, sourceTab) {
   });
   glances[glance.id] = { parentWindowId: parent.id, openerTabId: sourceTab.id };
   await setGlances(glances);
+  // Its page may have asked before the Glance was registered.
+  for (const tab of glance.tabs ?? []) browser.tabs.sendMessage(tab.id, { type: "glance-settings", inGlance: true }).catch(() => {});
 }
 
 async function closeGlance(windowId) {
@@ -218,7 +241,13 @@ function glanceAllowedIn(tab) {
 }
 
 async function handleGlanceMessage(message, sender) {
-  if (message.type === "glance-context") return { allowed: glanceAllowedIn(sender.tab) };
+  if (message.type === "glance-context") {
+    return {
+      allowed: glanceAllowedIn(sender.tab),
+      enabled: (await ZF.getSettings()).glance.enabled,
+      inGlance: Boolean((await getGlances())[sender.tab.windowId]),
+    };
+  }
   if (message.type === "glance-open") {
     if (!glanceAllowedIn(sender.tab) || !(await ZF.getSettings()).glance.enabled || !isWebUrl(message.url)) return;
     // At most one Glance request per tab every half second.
