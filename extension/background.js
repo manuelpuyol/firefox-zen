@@ -79,7 +79,28 @@ for (const event of ["onCreated", "onUpdated"]) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Auto-unload (lib/unload.js)
+// ---------------------------------------------------------------------------
+
+browser.alarms.onAlarm.addListener(alarm => {
+  if (alarm.name === ZF.UNLOAD_ALARM) ZF.unloadStaleTabs();
+});
+
+browser.tabs.onUpdated.addListener((_id, _change, tab) => ZF.keepEssentialLoaded(tab).catch(() => {}), {
+  properties: ["pinned"],
+});
+
+browser.storage.onChanged.addListener(changes => {
+  if (changes.autoUnload) ZF.configureAutoUnload();
+});
+
+browser.runtime.onMessage.addListener(message => {
+  if (message?.type === "zf-unload-now") return ZF.unloadStaleTabs();
+});
+
 function setUp() {
+  ZF.configureAutoUnload().catch(() => {});
   createMenus();
   ZF.closeOldPlaceholders().catch(() => {});
   migrateSoon();
@@ -142,7 +163,9 @@ async function expandGlance(windowId) {
   await closeGlance(windowId);
 }
 
-browser.runtime.onMessage.addListener(async (message, sender) => {
+// Only Glance messages are answered here; returning nothing for others lets
+// other listeners (e.g. "unload now") reply.
+async function handleGlanceMessage(message, sender) {
   if (!sender.tab) return;
   if (message.type === "glance-open") {
     const glances = await getGlances();
@@ -154,6 +177,12 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
     }
   }
   if (message.type === "glance-escape") await closeGlance(sender.tab.windowId);
+}
+
+browser.runtime.onMessage.addListener((message, sender) => {
+  if (sender.tab && (message?.type === "glance-open" || message?.type === "glance-escape")) {
+    return handleGlanceMessage(message, sender);
+  }
 });
 
 browser.windows.onFocusChanged.addListener(async focusedId => {

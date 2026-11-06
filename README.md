@@ -80,6 +80,10 @@ Behaviour:
 - **Menus:** right-clicking a tab shows Firefox's own tab menu plus *Keep in Sidebar*, *Move to Regular Tabs*, *Move to New Folder* and the reset items. Right-clicking a folder or empty space offers *New Folder*, *New Subfolder*, *Rename Folder* and *Remove Folder (Keep Tabs)*.
 - **Firefox tab groups become folders:** on install, existing tab groups (including the leading-space subfolder convention) are converted. A group created later with Firefox's own menu becomes a folder once it's named.
 
+### Auto-unload
+
+Every 5 minutes, tabs you haven't looked at for an hour are unloaded, the same rules as [Zen Stale Tabs](https://github.com/manuelpuyol/zen-stale-pinned-tabs). Essentials are always kept loaded (Firefox's own low-memory unloader is told to skip them too). The current tab, and tabs playing audio, still loading or in private windows, are skipped. Change the timings, turn it off, or unload idle tabs immediately from the extension's settings (`about:addons` → Zen Folder Tools → Preferences).
+
 ### Extras
 
 - **Reset kept tabs:** each kept tab remembers the URL it had when it was kept. A ↺ button appears in the sidebar when it has navigated away; also in the tab menu (**Reset to Original URL**) and Option+Shift+R. **Use Current Page as Original URL** changes it.
