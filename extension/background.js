@@ -37,6 +37,7 @@ function createMenus() {
     { id: "zf-folder-with-tab", title: "Move to New Folder", contexts: ["tab"] },
     { id: "reset-tab", title: "Reset to Original URL", contexts: ["tab"] },
     { id: "set-original", title: "Use Current Page as Original URL", contexts: ["tab"] },
+    { id: "zf-copy-urls", title: "Copy URL", contexts: ["tab"] },
     // Sidebar folder menu
     { id: "zf-new-folder", title: "New Folder", contexts: ["all"], documentUrlPatterns: [SIDEBAR_URL] },
     { id: "zf-new-subfolder", title: "New Subfolder", contexts: ["all"], documentUrlPatterns: [SIDEBAR_URL] },
@@ -48,8 +49,16 @@ function createMenus() {
   });
 }
 
+// The URLs "Copy URL" will copy, worked out when the menu opens: the copy
+// itself has to happen straight away in the click handler.
+let urlsToCopy = [];
+
 browser.menus.onShown.addListener(async (info, tab) => {
   if (!info.contexts.includes("tab") || !tab) return;
+  // The clicked tab, or every selected tab when it's part of the selection.
+  const selected = tab.highlighted ? await browser.tabs.query({ windowId: tab.windowId, highlighted: true }) : [tab];
+  urlsToCopy = selected.sort((a, b) => a.index - b.index).map(t => t.url);
+  browser.menus.update("zf-copy-urls", { title: urlsToCopy.length > 1 ? `Copy ${urlsToCopy.length} URLs` : "Copy URL" });
   const kept = !tab.pinned && Boolean(await ZF.getPlace(tab.id));
   const original = kept ? await browser.sessions.getTabValue(tab.id, ZF.ORIGINAL_URL_KEY) : null;
   browser.menus.update("zf-keep", { visible: !tab.pinned && !kept });
@@ -65,6 +74,11 @@ browser.menus.onShown.addListener(async (info, tab) => {
 
 browser.menus.onClicked.addListener(async (info, tab) => {
   if (!tab) return;
+  if (info.menuItemId === "zf-copy-urls") {
+    const urls = urlsToCopy.length ? urlsToCopy : [tab.url];
+    navigator.clipboard.writeText(urls.join("\n")).catch(error => console.error("Copy URLs:", error));
+    return;
+  }
   if (info.menuItemId === "reset-tab") resetTab(tab);
   if (info.menuItemId === "set-original") markCurrentAsOriginal(tab);
   // Act on every selected tab when the clicked tab is part of the selection,
