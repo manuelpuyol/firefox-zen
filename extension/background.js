@@ -92,7 +92,7 @@ browser.tabs.onUpdated.addListener((_id, _change, tab) => ZF.keepEssentialLoaded
 });
 
 browser.storage.onChanged.addListener(changes => {
-  if (changes.autoUnload) ZF.configureAutoUnload();
+  if (changes.settings || changes.autoUnload) ZF.configureAutoUnload();
 });
 
 browser.runtime.onMessage.addListener(message => {
@@ -125,8 +125,9 @@ async function setGlances(glances) {
 
 async function openGlance(url, sourceTab) {
   const parent = await browser.windows.get(sourceTab.windowId);
-  const width = Math.round(parent.width * 0.8);
-  const height = Math.round(parent.height * 0.85);
+  const { size } = (await ZF.getSettings()).glance;
+  const width = Math.round((parent.width * size) / 100);
+  const height = Math.round((parent.height * Math.min(size + 5, 95)) / 100);
   const glance = await browser.windows.create({
     url,
     type: "popup",

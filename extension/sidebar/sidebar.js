@@ -24,6 +24,17 @@ let lastSignature = null;
 // Bumped by local changes (e.g. folder toggles). A redraw that started reading
 // state before a change would show stale data, so it's discarded and redone.
 let editGeneration = 0;
+let settings = ZF.normalizeSettings({});
+
+function applySettings(next) {
+  settings = next;
+  const sb = settings.sidebar;
+  document.body.classList.toggle("compact", sb.compact);
+  document.body.classList.toggle("hide-counts", !sb.showCounts);
+  document.body.classList.toggle("hide-clear", !sb.showClear);
+  document.body.classList.toggle("no-animations", !sb.animations);
+  document.documentElement.style.setProperty("--tile-size", `${sb.tileSize}px`);
+}
 
 const $ = id => document.getElementById(id);
 
@@ -154,7 +165,7 @@ function tabRow(tab, depth, place) {
       place !== "regular" && el("button", { className: `reset${changed ? " changed" : ""}`, title: "Reset to original URL", textContent: "↺", dataset: { action: "reset" } }),
       el("button", {
         className: "close",
-        title: place === "regular" || tab.discarded ? "Close tab" : "Unload tab (close again to remove)",
+        title: place === "regular" || tab.discarded || !settings.sidebar.unloadOnClose ? "Close tab" : "Unload tab (close again to remove)",
         textContent: "×",
         dataset: { action: "close" },
       }),
@@ -200,6 +211,7 @@ document.addEventListener("click", async event => {
   const action = event.target.closest("[data-action]")?.dataset.action;
   const item = event.target.closest("[data-tab-id], [data-folder-id]");
   if (event.target.closest("#new-tab")) return browser.tabs.create({ windowId });
+  if (event.target.closest("#settings")) return browser.runtime.openOptionsPage();
   if (event.target.closest("#clear")) return ZF.clearRegular(view);
   if (!item || event.target.closest(".rename")) return;
 
@@ -219,7 +231,7 @@ document.addEventListener("click", async event => {
 
   const tabId = Number(item.dataset.tabId);
   const tab = view.tabsById.get(tabId);
-  if (action === "close") return ZF.closeOrUnload(tabId, view);
+  if (action === "close") return ZF.closeOrUnload(tabId, view, { unloadFirst: settings.sidebar.unloadOnClose });
   if (action === "reset") return tab?.zfOriginalUrl && browser.tabs.update(tabId, { url: tab.zfOriginalUrl });
   if (action === "mute") return browser.tabs.update(tabId, { muted: !tab?.mutedInfo?.muted });
   return browser.tabs.update(tabId, { active: true });
@@ -231,7 +243,7 @@ document.addEventListener("auxclick", event => {
   const item = event.target.closest("[data-tab-id]");
   if (item) {
     event.preventDefault();
-    ZF.closeOrUnload(Number(item.dataset.tabId), view);
+    ZF.closeOrUnload(Number(item.dataset.tabId), view, { unloadFirst: settings.sidebar.unloadOnClose });
   }
 });
 
@@ -431,7 +443,11 @@ document.addEventListener("drop", async event => {
     windowId,
     properties: ["title", "url", "favIconUrl", "discarded", "audible", "mutedInfo", "pinned", "hidden"],
   });
-  browser.storage.onChanged.addListener(scheduleRender);
+  browser.storage.onChanged.addListener(changes => {
+    if (changes.settings) applySettings(ZF.normalizeSettings(changes.settings.newValue));
+    if (changes.folders) scheduleRender();
+  });
+  applySettings(await ZF.getSettings());
   await render({ force: true });
   // Session values for restored tabs can arrive a little after startup.
   setTimeout(scheduleRender, 1000);

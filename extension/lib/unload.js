@@ -8,21 +8,11 @@
 (() => {
 const ZF = (globalThis.ZF ??= {});
 
-ZF.UNLOAD_DEFAULTS = Object.freeze({ enabled: true, staleMinutes: 60, scanIntervalMinutes: 5 });
 ZF.UNLOAD_ALARM = "zf-auto-unload";
 
 const INTERNAL_URL = /^(?:about|chrome|data|file|moz-extension|resource|view-source):/i;
 
-ZF.getUnloadSettings = async () => {
-  const { autoUnload } = await browser.storage.local.get("autoUnload");
-  const s = { ...ZF.UNLOAD_DEFAULTS, ...(autoUnload ?? {}) };
-  const clamp = (v, min, max, fallback) => (Number.isFinite(Number(v)) ? Math.min(max, Math.max(min, Math.round(Number(v)))) : fallback);
-  return {
-    enabled: s.enabled !== false,
-    staleMinutes: clamp(s.staleMinutes, 1, 43_200, ZF.UNLOAD_DEFAULTS.staleMinutes),
-    scanIntervalMinutes: clamp(s.scanIntervalMinutes, 1, 1_440, ZF.UNLOAD_DEFAULTS.scanIntervalMinutes),
-  };
-};
+ZF.getUnloadSettings = async () => (await ZF.getSettings()).autoUnload;
 
 // Why a tab isn't unloaded, or null if it should be.
 ZF.unloadSkipReason = (tab, staleMs, now = Date.now()) => {

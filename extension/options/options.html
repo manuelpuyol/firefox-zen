@@ -2,25 +2,122 @@
 <html>
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width">
   <title>Zen Folder Tools</title>
-  <style>
-    :root { color-scheme: light dark; font: menu; font-size: 14px; }
-    body { margin: 16px; max-width: 520px; }
-    h2 { font-size: 15px; margin: 0 0 12px; }
-    label { display: flex; align-items: center; gap: 8px; margin: 10px 0; }
-    input[type=number] { width: 70px; }
-    .hint { color: GrayText; font-size: 12px; margin: 4px 0 12px; }
-    #last { color: GrayText; font-size: 12px; margin-top: 12px; }
-  </style>
+  <link rel="stylesheet" href="options.css">
+  <script src="../lib/settings.js"></script>
   <script src="options.js" defer></script>
 </head>
 <body>
-  <h2>Auto-unload</h2>
-  <label><input type="checkbox" id="enabled"> Unload tabs I haven't used for a while</label>
-  <label>Unload after <input type="number" id="staleMinutes" min="1" max="43200"> minutes unused</label>
-  <label>Check every <input type="number" id="scanIntervalMinutes" min="1" max="1440"> minutes</label>
-  <p class="hint">Essentials are always kept loaded. The current tab and tabs that are playing audio or still loading are skipped.</p>
-  <button id="now" type="button">Unload idle tabs now</button>
-  <div id="last"></div>
+  <header>
+    <img src="../icons/icon.svg" alt="" width="40" height="40">
+    <div>
+      <h1>Zen Folder Tools</h1>
+      <p>Changes apply immediately.</p>
+    </div>
+  </header>
+
+  <main>
+    <div class="cards">
+      <section class="card">
+        <h2>Sidebar</h2>
+        <div class="setting">
+          <div class="text"><span class="label">Compact rows</span><span class="hint">Shorter rows and smaller corners.</span></div>
+          <input type="checkbox" class="switch" data-setting="sidebar.compact">
+        </div>
+        <div class="setting">
+          <div class="text"><span class="label">Essentials tile size</span><span class="hint">Smaller tiles fit more per row.</span></div>
+          <div class="range">
+            <input type="range" min="44" max="96" step="2" data-setting="sidebar.tileSize">
+            <output data-output="sidebar.tileSize" data-unit="px"></output>
+          </div>
+        </div>
+        <div class="setting">
+          <div class="text"><span class="label">Folder counts</span><span class="hint">The <b>+N</b> badge with the number of tabs inside a folder.</span></div>
+          <input type="checkbox" class="switch" data-setting="sidebar.showCounts">
+        </div>
+        <div class="setting">
+          <div class="text"><span class="label">Clear button</span><span class="hint">Closes all regular tabs below the separator.</span></div>
+          <input type="checkbox" class="switch" data-setting="sidebar.showClear">
+        </div>
+        <div class="setting">
+          <div class="text"><span class="label">Unload before closing</span><span class="hint">Closing a loaded Essential or kept tab from the sidebar unloads it first; closing it again removes it.</span></div>
+          <input type="checkbox" class="switch" data-setting="sidebar.unloadOnClose">
+        </div>
+        <div class="setting">
+          <div class="text"><span class="label">Animations</span><span class="hint">Animate opening and closing folders.</span></div>
+          <input type="checkbox" class="switch" data-setting="sidebar.animations">
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Auto-unload</h2>
+        <div class="setting">
+          <div class="text"><span class="label">Unload idle tabs</span><span class="hint">Frees memory. Essentials, the current tab, and tabs playing audio are always kept loaded.</span></div>
+          <input type="checkbox" class="switch" data-setting="autoUnload.enabled">
+        </div>
+        <div class="setting" data-depends="autoUnload.enabled">
+          <div class="text"><span class="label">Unload after</span><span class="hint">How long a tab can go unused.</span></div>
+          <select data-setting="autoUnload.staleMinutes" data-number>
+            <option value="15">15 minutes</option>
+            <option value="30">30 minutes</option>
+            <option value="60">1 hour</option>
+            <option value="120">2 hours</option>
+            <option value="240">4 hours</option>
+            <option value="480">8 hours</option>
+            <option value="1440">1 day</option>
+          </select>
+        </div>
+        <div class="setting" data-depends="autoUnload.enabled">
+          <div class="text"><span class="label">Check every</span><span class="hint">How often idle tabs are looked for.</span></div>
+          <select data-setting="autoUnload.scanIntervalMinutes" data-number>
+            <option value="1">1 minute</option>
+            <option value="5">5 minutes</option>
+            <option value="10">10 minutes</option>
+            <option value="15">15 minutes</option>
+            <option value="30">30 minutes</option>
+          </select>
+        </div>
+        <div class="setting status">
+          <div class="text"><span class="label" id="last-run">No unload run yet.</span><span class="hint" id="last-run-detail"></span></div>
+          <button type="button" id="unload-now">Unload idle tabs now</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Glance</h2>
+        <div class="setting">
+          <div class="text"><span class="label">Option+click opens Glance</span><span class="hint">Preview a link in a floating window. Escape or clicking the main window closes it.</span></div>
+          <input type="checkbox" class="switch" data-setting="glance.enabled">
+        </div>
+        <div class="setting" data-depends="glance.enabled">
+          <div class="text"><span class="label">Window size</span><span class="hint">Relative to the window you opened it from.</span></div>
+          <div class="range">
+            <input type="range" min="50" max="95" step="5" data-setting="glance.size">
+            <output data-output="glance.size" data-unit="%"></output>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Keyboard shortcuts</h2>
+        <ul class="shortcuts" id="shortcuts"></ul>
+        <div class="setting">
+          <div class="text"><span class="hint">Cmd+W always closes the tab; Firefox doesn't let extensions change it.</span></div>
+          <button type="button" id="edit-shortcuts">Change shortcuts…</button>
+        </div>
+      </section>
+
+      <footer>
+        <button type="button" id="reset" class="subtle">Reset to defaults</button>
+      </footer>
+    </div>
+
+    <aside class="preview">
+      <h2>Live preview</h2>
+      <iframe src="../sidebar/sidebar.html" title="Sidebar preview" tabindex="-1"></iframe>
+      <p class="hint">Your real sidebar for this window.</p>
+    </aside>
+  </main>
 </body>
 </html>

@@ -16,6 +16,23 @@
   --accent: light-dark(rgb(0 0 0 / 0.6), rgb(255 255 255 / 0.7));
   --ghost: 0.6;
   --duration: 180ms;
+  --tile-size: 64px;
+}
+
+/* Settings (applied by sidebar.js) */
+body.compact {
+  --row-height: 32px;
+  --radius: 10px;
+  font-size: 13px;
+}
+
+body.hide-counts .count,
+body.hide-clear #clear {
+  display: none;
+}
+
+body.no-animations {
+  --duration: 0ms;
 }
 
 html {
@@ -53,8 +70,8 @@ button {
 /* Essentials grid */
 .essentials {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
-  grid-auto-rows: 50px;
+  grid-template-columns: repeat(auto-fill, minmax(var(--tile-size), 1fr));
+  grid-auto-rows: calc(var(--tile-size) * 0.78);
   gap: 4px;
   padding: 0 var(--row-inset) 8px;
   margin-bottom: 4px;
@@ -258,12 +275,34 @@ button {
   font-size: 12px;
 }
 
+.footer {
+  display: flex;
+  align-items: center;
+  margin-inline: var(--row-inset);
+  gap: 4px;
+}
+
+#settings {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  color: var(--text-dim);
+}
+
+#settings:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
 #new-tab {
+  flex: 1;
   display: flex;
   align-items: center;
   gap: 10px;
   height: var(--row-height);
-  margin-inline: var(--row-inset);
   padding-inline: var(--row-padding);
   border-radius: var(--radius);
   color: var(--text-dim);

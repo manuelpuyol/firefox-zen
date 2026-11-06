@@ -1,38 +1,112 @@
 "use strict";
 
-const fields = ["enabled", "staleMinutes", "scanIntervalMinutes"];
-const $ = id => document.getElementById(id);
+let settings;
 
-function describe(summary) {
-  if (!summary) return "No unload run yet.";
-  const when = new Date(summary.at).toLocaleTimeString();
-  return `Last run ${when}: unloaded ${summary.unloaded} tab${summary.unloaded === 1 ? "" : "s"}${summary.failed ? `, ${summary.failed} failed` : ""}.`;
+const get = (obj, path) => path.split(".").reduce((o, k) => o?.[k], obj);
+
+function render() {
+  for (const input of document.querySelectorAll("[data-setting]")) {
+    const value = get(settings, input.dataset.setting);
+    if (input.type === "checkbox") input.checked = value;
+    else input.value = String(value);
+    // Keep values that aren't one of the presets selectable.
+    if (input.tagName === "SELECT" && input.value !== String(value)) {
+      input.append(new Option(`${value} minutes`, String(value)));
+      input.value = String(value);
+    }
+  }
+  for (const output of document.querySelectorAll("[data-output]")) {
+    output.textContent = `${get(settings, output.dataset.output)}${output.dataset.unit ?? ""}`;
+  }
+  for (const row of document.querySelectorAll("[data-depends]")) {
+    row.classList.toggle("disabled", !get(settings, row.dataset.depends));
+  }
 }
 
-async function load() {
-  const { autoUnload = {}, lastAutoUnload } = await browser.storage.local.get(["autoUnload", "lastAutoUnload"]);
-  const settings = { enabled: true, staleMinutes: 60, scanIntervalMinutes: 5, ...autoUnload };
-  $("enabled").checked = settings.enabled !== false;
-  $("staleMinutes").value = settings.staleMinutes;
-  $("scanIntervalMinutes").value = settings.scanIntervalMinutes;
-  $("last").textContent = describe(lastAutoUnload);
+async function save(input) {
+  const [section, key] = input.dataset.setting.split(".");
+  let value = input.type === "checkbox" ? input.checked : input.value;
+  if (input.type === "range" || "number" in input.dataset) value = Number(value);
+  settings = await ZF.updateSettings(section, { [key]: value });
+  render();
 }
 
-async function save() {
-  await browser.storage.local.set({
-    autoUnload: {
-      enabled: $("enabled").checked,
-      staleMinutes: Number($("staleMinutes").value) || 60,
-      scanIntervalMinutes: Number($("scanIntervalMinutes").value) || 5,
-    },
-  });
+for (const input of document.querySelectorAll("[data-setting]")) {
+  input.addEventListener(input.type === "range" ? "input" : "change", () => save(input));
 }
 
-for (const id of fields) $(id).addEventListener("change", save);
-$("now").addEventListener("click", async () => {
-  $("last").textContent = describe(await browser.runtime.sendMessage({ type: "zf-unload-now" }));
+// Auto-unload status
+function describeRun(summary) {
+  if (!summary) return ["No unload run yet.", ""];
+  const minutes = Math.round((Date.now() - summary.at) / 60_000);
+  const when = minutes < 1 ? "just now" : minutes === 1 ? "1 minute ago" : `${minutes} minutes ago`;
+  const n = summary.unloaded;
+  const kept = Object.entries(summary.skipped ?? {})
+    .filter(([reason]) => ["essential", "active", "audible"].includes(reason))
+    .map(([reason, count]) => {
+      if (reason === "essential") return `${count} Essential${count === 1 ? "" : "s"}`;
+      return `${count} ${reason === "active" ? "current" : "playing audio"}`;
+    });
+  return [`Last run ${when}: unloaded ${n} tab${n === 1 ? "" : "s"}`, kept.length ? `Kept loaded: ${kept.join(", ")}.` : ""];
+}
+
+async function showLastRun(summary) {
+  summary ??= (await browser.storage.local.get("lastAutoUnload")).lastAutoUnload;
+  const [label, detail] = describeRun(summary);
+  document.getElementById("last-run").textContent = label;
+  document.getElementById("last-run-detail").textContent = detail;
+}
+
+document.getElementById("unload-now").addEventListener("click", async event => {
+  event.target.disabled = true;
+  await showLastRun(await browser.runtime.sendMessage({ type: "zf-unload-now" }));
+  event.target.disabled = false;
 });
+
+// Shortcuts
+async function showShortcuts() {
+  const list = document.getElementById("shortcuts");
+  const commands = await browser.commands.getAll();
+  const pretty = key =>
+    key
+      ? key.replace(/Alt/g, "⌥").replace(/Shift/g, "⇧").replace(/Command|MacCtrl/g, "⌘").replace(/Ctrl/g, "⌃").replace(/\+/g, "")
+      : "Not set";
+  list.replaceChildren(
+    ...commands.map(c => {
+      const li = document.createElement("li");
+      const label = document.createElement("span");
+      label.textContent = c.description;
+      const kbd = document.createElement("kbd");
+      kbd.textContent = pretty(c.shortcut);
+      li.append(label, kbd);
+      return li;
+    })
+  );
+}
+
+document.getElementById("edit-shortcuts").addEventListener("click", () => {
+  if (browser.commands.openShortcutSettings) browser.commands.openShortcutSettings();
+  else browser.tabs.create({ url: "about:addons" });
+});
+
+document.getElementById("reset").addEventListener("click", async () => {
+  await ZF.resetSettings();
+  settings = await ZF.getSettings();
+  render();
+});
+
 browser.storage.onChanged.addListener(changes => {
-  if (changes.lastAutoUnload) $("last").textContent = describe(changes.lastAutoUnload.newValue);
+  if (changes.lastAutoUnload) showLastRun(changes.lastAutoUnload.newValue);
+  if (changes.settings) {
+    settings = ZF.normalizeSettings(changes.settings.newValue);
+    render();
+  }
 });
-load();
+
+(async () => {
+  settings = await ZF.getSettings();
+  render();
+  showLastRun();
+  showShortcuts();
+  setInterval(showLastRun, 60_000);
+})();

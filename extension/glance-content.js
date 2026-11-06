@@ -1,10 +1,16 @@
 "use strict";
 
+let glanceEnabled = true;
+browser.storage.local.get("settings").then(({ settings }) => (glanceEnabled = settings?.glance?.enabled !== false));
+browser.storage.onChanged.addListener(changes => {
+  if (changes.settings) glanceEnabled = changes.settings.newValue?.glance?.enabled !== false;
+});
+
 // Alt+click on a link opens it in Glance instead of following it.
 document.addEventListener(
   "click",
   event => {
-    if (!event.altKey || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return;
+    if (!glanceEnabled || !event.altKey || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return;
     const link = event.target instanceof Element && event.target.closest("a[href]");
     if (!link) return;
     const url = new URL(link.getAttribute("href"), document.baseURI);

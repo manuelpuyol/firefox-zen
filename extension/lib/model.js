@@ -212,8 +212,9 @@ ZF.normalizeAllWindows = async () => {
 
 // Zen close: a loaded Essential or pinned-section tab is unloaded first; an
 // unloaded pinned-section tab is closed. Regular tabs just close.
-ZF.closeOrUnload = async (tabId, view) => {
+ZF.closeOrUnload = async (tabId, view, { unloadFirst = true } = {}) => {
   const tab = await browser.tabs.get(tabId);
+  if (!unloadFirst) return tab.pinned ? browser.tabs.update(tabId, { pinned: false }).then(() => browser.tabs.remove(tabId)) : browser.tabs.remove(tabId);
   const kept = tab.pinned || Boolean(await ZF.getPlace(tabId));
   if (!kept) return browser.tabs.remove(tabId);
   if (tab.discarded) {

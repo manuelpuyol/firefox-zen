@@ -1,0 +1,267 @@
+:root {
+  color-scheme: light dark;
+  --bg: light-dark(#f4f4f6, #141416);
+  --card: light-dark(#ffffff, #1f1f23);
+  --text: light-dark(#1b1b1f, #ececf0);
+  --dim: light-dark(#6b6b76, #9a9aa6);
+  --line: light-dark(rgb(0 0 0 / 0.08), rgb(255 255 255 / 0.08));
+  --accent: light-dark(#5b4bd9, #8b7cff);
+  --control: light-dark(rgb(0 0 0 / 0.06), rgb(255 255 255 / 0.08));
+  font: menu;
+  font-size: 14px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 32px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: 1040px;
+  margin: 0 auto 24px;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 650;
+}
+
+header p {
+  margin: 2px 0 0;
+  color: var(--dim);
+}
+
+main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 24px;
+  max-width: 1040px;
+  margin: 0 auto;
+  align-items: start;
+}
+
+@media (width < 860px) {
+  main {
+    grid-template-columns: 1fr;
+  }
+
+  .preview {
+    display: none;
+  }
+}
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 6px 20px;
+}
+
+.card h2,
+.preview h2 {
+  margin: 14px 0 4px;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+  transition: opacity 150ms;
+}
+
+.card h2 + .setting {
+  border-top: none;
+}
+
+.setting.disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.label {
+  font-weight: 550;
+}
+
+.hint {
+  color: var(--dim);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+/* Switch */
+.switch {
+  appearance: none;
+  flex: none;
+  width: 40px;
+  height: 24px;
+  margin: 0;
+  border-radius: 999px;
+  background: var(--control);
+  position: relative;
+  cursor: pointer;
+  transition: background 150ms;
+}
+
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.3);
+  transition: translate 150ms;
+}
+
+.switch:checked {
+  background: var(--accent);
+}
+
+.switch:checked::after {
+  translate: 16px 0;
+}
+
+.switch:focus-visible,
+select:focus-visible,
+button:focus-visible,
+input[type="range"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Range */
+.range {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+
+input[type="range"] {
+  width: 160px;
+  accent-color: var(--accent);
+}
+
+output {
+  min-width: 44px;
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+  color: var(--dim);
+}
+
+select,
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--control);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 6px 12px;
+  flex: none;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:hover,
+select:hover {
+  background: color-mix(in srgb, var(--control), currentColor 6%);
+}
+
+button.subtle {
+  background: none;
+  border-color: transparent;
+  color: var(--dim);
+}
+
+button.subtle:hover {
+  color: var(--text);
+}
+
+footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Shortcuts */
+.shortcuts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.shortcuts li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.card h2 + .shortcuts li:first-child {
+  border-top: none;
+}
+
+kbd {
+  font: inherit;
+  font-size: 12.5px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--control);
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+/* Preview */
+.preview {
+  position: sticky;
+  top: 24px;
+}
+
+.preview iframe {
+  display: block;
+  width: 100%;
+  height: min(640px, calc(100vh - 140px));
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: light-dark(#ececef, #1b1b1f);
+  pointer-events: none;
+}
+
+.preview .hint {
+  margin: 8px 4px 0;
+}
