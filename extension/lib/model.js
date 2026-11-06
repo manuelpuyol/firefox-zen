@@ -26,6 +26,20 @@ ZF.newId = () => `f${Date.now().toString(36)}${Math.random().toString(36).slice(
 ZF.loadFolders = async () => (await browser.storage.local.get("folders")).folders ?? [];
 ZF.saveFolders = folders => browser.storage.local.set({ folders });
 
+// All folder changes go through here, one at a time, so two quick changes
+// (e.g. collapsing two folders) can't overwrite each other.
+let folderQueue = Promise.resolve();
+ZF.mutateFolders = fn => {
+  const run = folderQueue.then(async () => {
+    const folders = await ZF.loadFolders();
+    const result = await fn(folders);
+    await ZF.saveFolders(folders);
+    return result;
+  });
+  folderQueue = run.catch(() => {});
+  return run;
+};
+
 ZF.getPlace = async tabId => (await browser.sessions.getTabValue(tabId, ZF.FOLDER_KEY).catch(() => undefined)) ?? null;
 
 ZF.setPlace = async (tab, place) => {
@@ -52,8 +66,8 @@ ZF.isDescendant = (folders, folderId, ancestorId) => {
 
 // Everything the sidebar needs for one window.
 ZF.buildView = async windowId => {
-  const [tabs, folders] = await Promise.all([browser.tabs.query({ windowId }), ZF.loadFolders()]);
-  tabs.sort((a, b) => a.index - b.index);
+  const [allTabs, folders] = await Promise.all([browser.tabs.query({ windowId }), ZF.loadFolders()]);
+  const tabs = allTabs.filter(t => !t.hidden).sort((a, b) => a.index - b.index);
   const known = new Set(folders.map(f => f.id));
   const places = await Promise.all(tabs.map(t => (t.pinned ? null : ZF.getPlace(t.id))));
   const originals = await Promise.all(
@@ -98,10 +112,14 @@ ZF.segments = view => {
 
 ZF.applyOrder = async (windowId, segments) => {
   const desired = segments.flatMap(s => s.ids);
-  const current = (await browser.tabs.query({ windowId, pinned: false })).sort((a, b) => a.index - b.index).map(t => t.id);
+  const current = (await browser.tabs.query({ windowId, pinned: false }))
+    .filter(t => !t.hidden)
+    .sort((a, b) => a.index - b.index)
+    .map(t => t.id);
   if (desired.length === current.length && desired.every((id, i) => id === current[i])) return;
-  const pinnedCount = (await browser.tabs.query({ windowId, pinned: true })).length;
-  await browser.tabs.move(desired, { windowId, index: pinnedCount });
+  // Hidden tabs (other extensions) may sit in between; moving to the end
+  // keeps the visible order without having to account for them.
+  await browser.tabs.move(desired, { windowId, index: -1 });
 };
 
 // Re-sort Firefox's tab order to match the sidebar.
@@ -142,44 +160,46 @@ ZF.moveTab = async (tabId, place, { beforeId = null, afterId = null } = {}) => {
 
 // Move a folder under parentId (null = top level), before/after a sibling.
 ZF.moveFolder = async (folderId, parentId, { beforeId = null, afterId = null } = {}) => {
-  const folders = await ZF.loadFolders();
-  if (folderId === parentId || (parentId && ZF.isDescendant(folders, parentId, folderId))) return;
-  const folder = folders.find(f => f.id === folderId);
-  if (!folder) return;
-  const siblings = ZF.childrenOf(folders, parentId).filter(f => f.id !== folderId);
-  const anchor = beforeId ?? afterId;
-  const at = anchor ? siblings.findIndex(f => f.id === anchor) : -1;
-  if (at === -1) siblings.push(folder);
-  else siblings.splice(at + (afterId ? 1 : 0), 0, folder);
-  folder.parentId = parentId;
-  siblings.forEach((f, i) => (f.order = i));
-  await ZF.saveFolders(folders);
-  await ZF.normalizeAllWindows();
+  const moved = await ZF.mutateFolders(folders => {
+    if (folderId === parentId || (parentId && ZF.isDescendant(folders, parentId, folderId))) return false;
+    const folder = folders.find(f => f.id === folderId);
+    if (!folder) return false;
+    const siblings = ZF.childrenOf(folders, parentId).filter(f => f.id !== folderId);
+    const anchor = beforeId ?? afterId;
+    const at = anchor ? siblings.findIndex(f => f.id === anchor) : -1;
+    if (at === -1) siblings.push(folder);
+    else siblings.splice(at + (afterId ? 1 : 0), 0, folder);
+    folder.parentId = parentId;
+    siblings.forEach((f, i) => (f.order = i));
+    return true;
+  });
+  if (moved) await ZF.normalizeAllWindows();
 };
 
-ZF.createFolder = async (name, parentId = null) => {
-  const folders = await ZF.loadFolders();
-  const folder = { id: ZF.newId(), name, parentId, collapsed: false, order: ZF.childrenOf(folders, parentId).length };
-  folders.push(folder);
-  await ZF.saveFolders(folders);
-  return folder;
-};
+ZF.createFolder = (name, parentId = null) =>
+  ZF.mutateFolders(folders => {
+    const folder = { id: ZF.newId(), name, parentId, collapsed: false, order: ZF.childrenOf(folders, parentId).length };
+    folders.push(folder);
+    return folder;
+  });
 
-ZF.updateFolder = async (folderId, changes) => {
-  const folders = await ZF.loadFolders();
-  const folder = folders.find(f => f.id === folderId);
-  if (folder) Object.assign(folder, changes);
-  await ZF.saveFolders(folders);
-};
+ZF.updateFolder = (folderId, changes) =>
+  ZF.mutateFolders(folders => {
+    const folder = folders.find(f => f.id === folderId);
+    if (folder) Object.assign(folder, changes);
+  });
 
 // Remove a folder but keep everything in it: its subfolders and tabs move up
 // to its parent.
 ZF.removeFolder = async folderId => {
-  const folders = await ZF.loadFolders();
-  const folder = folders.find(f => f.id === folderId);
+  const folder = await ZF.mutateFolders(folders => {
+    const index = folders.findIndex(f => f.id === folderId);
+    if (index === -1) return null;
+    const [removed] = folders.splice(index, 1);
+    for (const child of folders.filter(f => f.parentId === folderId)) child.parentId = removed.parentId ?? null;
+    return removed;
+  });
   if (!folder) return;
-  for (const child of folders.filter(f => f.parentId === folderId)) child.parentId = folder.parentId ?? null;
-  await ZF.saveFolders(folders.filter(f => f.id !== folderId));
   for (const tab of await browser.tabs.query({})) {
     if ((await ZF.getPlace(tab.id)) === folderId) await ZF.setPlace(tab, folder.parentId ?? ZF.ROOT);
   }
@@ -222,6 +242,18 @@ ZF.clearRegular = async view => {
     else await browser.tabs.create({ windowId: view.windowId });
   }
   await browser.tabs.remove(ids);
+};
+
+// Version 0.2.0 kept empty tab groups alive with hidden placeholder tabs.
+// Folders don't need them any more; close any that are left.
+ZF.closeOldPlaceholders = async () => {
+  const leftovers = [];
+  for (const tab of await browser.tabs.query({})) {
+    const marked = await browser.sessions.getTabValue(tab.id, "folderPlaceholder").catch(() => undefined);
+    const looksLikeOne = tab.title === "Folder placeholder" && tab.url?.startsWith("moz-extension://");
+    if (marked || looksLikeOne) leftovers.push(tab.id);
+  }
+  if (leftovers.length) await browser.tabs.remove(leftovers);
 };
 
 // Convert Firefox tab groups into folders (subfolders use the leading-space

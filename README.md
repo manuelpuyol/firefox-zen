@@ -77,7 +77,7 @@ Behaviour:
 
 - **Close to unload:** closing a loaded Essential or kept tab from the sidebar (× or middle-click) unloads it; closing it again while unloaded closes it (Essentials are never closed this way). Cmd+W can't be taken over by an extension, so it always closes.
 - **Drag and drop:** reorder tabs and folders, drop a tab on a folder to move it in, drop a folder on a folder to nest it, drag between Essentials, kept and regular tabs. Firefox's real tab order is kept in the same order as the sidebar.
-- **Menus:** right-clicking a tab shows Firefox's own tab menu plus *Keep in Sidebar*, *Move to Regular Tabs*, *Move to New Folder* and the reset items. Right-clicking a folder or empty space offers *New Folder*, *New Subfolder*, *Rename Folder* and *Remove Folder (Keep Tabs)*. Double-click a folder to rename it.
+- **Menus:** right-clicking a tab shows Firefox's own tab menu plus *Keep in Sidebar*, *Move to Regular Tabs*, *Move to New Folder* and the reset items. Right-clicking a folder or empty space offers *New Folder*, *New Subfolder*, *Rename Folder* and *Remove Folder (Keep Tabs)*.
 - **Firefox tab groups become folders:** on install, existing tab groups (including the leading-space subfolder convention) are converted. A group created later with Firefox's own menu becomes a folder once it's named.
 
 ### Extras

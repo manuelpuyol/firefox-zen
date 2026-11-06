@@ -79,14 +79,14 @@ for (const event of ["onCreated", "onUpdated"]) {
   });
 }
 
-browser.runtime.onInstalled.addListener(() => {
+function setUp() {
   createMenus();
+  ZF.closeOldPlaceholders().catch(() => {});
   migrateSoon();
-});
-browser.runtime.onStartup.addListener(() => {
-  createMenus();
-  migrateSoon();
-});
+}
+
+browser.runtime.onInstalled.addListener(setUp);
+browser.runtime.onStartup.addListener(setUp);
 
 // ---------------------------------------------------------------------------
 // Glance: Alt+click opens the link in a centred popup window over the current

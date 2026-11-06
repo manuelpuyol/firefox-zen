@@ -19,6 +19,11 @@ let dragging = null;
 let renamingFolderId = null;
 let renderPending = false;
 let renderTimer = null;
+let pointerDown = false;
+let lastSignature = null;
+// Bumped by local changes (e.g. folder toggles). A redraw that started reading
+// state before a change would show stale data, so it's discarded and redone.
+let editGeneration = 0;
 
 const $ = id => document.getElementById(id);
 
@@ -61,22 +66,50 @@ function favicon(tab) {
 // Rendering
 // ---------------------------------------------------------------------------
 
+// Rebuilding the list while a button is held swallows the click (the element
+// under the pointer at mouseup is no longer the one from mousedown), so
+// redraws wait until the pointer is released, a drag ends or a rename ends.
+function busy() {
+  return pointerDown || dragging || renamingFolderId;
+}
+
 function scheduleRender() {
-  if (dragging || renamingFolderId) {
+  if (busy()) {
     renderPending = true;
     return;
   }
   clearTimeout(renderTimer);
-  renderTimer = setTimeout(render, 30);
+  renderTimer = setTimeout(render, 50);
 }
 
-async function render() {
+// Only what the list shows; if it's unchanged, the DOM is left alone.
+function signature(v) {
+  const tab = t => [t.id, t.title, t.url, t.favIconUrl, t.active, t.discarded, t.audible, t.mutedInfo?.muted, t.zfOriginalUrl];
+  return JSON.stringify([
+    v.essentials.map(tab),
+    v.folders.map(f => [f.id, f.name, f.parentId, f.order, f.collapsed]),
+    [...v.byPlace].map(([place, tabs]) => [place, tabs.map(tab)]),
+    v.regular.map(tab),
+    renamingFolderId,
+  ]);
+}
+
+async function render({ force = false } = {}) {
   renderPending = false;
-  view = await ZF.buildView(windowId);
-  if (dragging || renamingFolderId) {
+  const generation = editGeneration;
+  const next = await ZF.buildView(windowId);
+  if (generation !== editGeneration) {
+    scheduleRender();
+    return;
+  }
+  if (busy() && !force) {
     renderPending = true;
     return;
   }
+  view = next;
+  const sig = signature(view);
+  if (sig === lastSignature && !force) return;
+  lastSignature = sig;
 
   $("essentials").replaceChildren(...view.essentials.map(tileFor));
 
@@ -179,8 +212,20 @@ document.addEventListener("click", async event => {
 
   if (item.dataset.folderId) {
     const folder = view.folders.find(f => f.id === item.dataset.folderId);
-    item.parentElement.querySelector(":scope > .children")?.classList.toggle("collapsed", !folder.collapsed);
-    return ZF.updateFolder(folder.id, { collapsed: !folder.collapsed });
+    if (!folder) return;
+    editGeneration++;
+    folder.collapsed = !folder.collapsed;
+    const block = item.parentElement;
+    block.querySelector(":scope > .children")?.classList.toggle("collapsed", folder.collapsed);
+    item.querySelector(".icon")?.replaceWith(folderIcon(!folder.collapsed));
+    // The active tab of a collapsed folder is shown under it; that row has to
+    // be added or removed, so redraw once the animation has run.
+    const needsRedraw = descendantTabs(folder.id).some(t => t.active);
+    lastSignature = signature(view);
+    await ZF.updateFolder(folder.id, { collapsed: folder.collapsed });
+    editGeneration++;
+    if (needsRedraw) setTimeout(() => render({ force: true }), 200);
+    return;
   }
 
   const tabId = Number(item.dataset.tabId);
@@ -205,15 +250,23 @@ document.addEventListener("mousedown", event => {
   if (event.button === 1) event.preventDefault();
 });
 
-document.addEventListener("dblclick", event => {
-  const row = event.target.closest(".row.folder");
-  if (row) startRename(row.dataset.folderId);
-});
+document.addEventListener("pointerdown", () => (pointerDown = true), true);
+function pointerReleased() {
+  if (!pointerDown) return;
+  // Let the click handler run before redrawing.
+  setTimeout(() => {
+    pointerDown = false;
+    if (renderPending) scheduleRender();
+  }, 0);
+}
+window.addEventListener("pointerup", pointerReleased, true);
+window.addEventListener("pointercancel", pointerReleased, true);
+window.addEventListener("blur", pointerReleased);
 
 function startRename(folderId) {
   renamingFolderId = folderId;
   renderPending = false;
-  render().then(() => {
+  render({ force: true }).then(() => {
     const input = document.querySelector(`[data-rename-for="${folderId}"]`);
     if (!input) return;
     input.focus();
@@ -223,7 +276,7 @@ function startRename(folderId) {
       renamingFolderId = null;
       const name = input.value.trim();
       if (save && name) await ZF.updateFolder(folderId, { name });
-      render();
+      render({ force: true });
     };
     input.addEventListener("keydown", e => {
       if (e.key === "Enter") finish(true);
@@ -382,14 +435,18 @@ document.addEventListener("drop", async event => {
 
 (async () => {
   windowId = (await browser.windows.getCurrent()).id;
-  for (const event of ["onCreated", "onRemoved", "onUpdated", "onActivated", "onMoved", "onAttached", "onDetached", "onReplaced"]) {
+  for (const event of ["onCreated", "onRemoved", "onActivated", "onMoved", "onAttached", "onDetached", "onReplaced"]) {
     browser.tabs[event].addListener(scheduleRender);
   }
+  browser.tabs.onUpdated.addListener(scheduleRender, {
+    windowId,
+    properties: ["title", "url", "favIconUrl", "discarded", "audible", "mutedInfo", "pinned", "hidden"],
+  });
   browser.storage.onChanged.addListener(scheduleRender);
-  await render();
+  await render({ force: true });
   // Session values for restored tabs can arrive a little after startup.
   setTimeout(scheduleRender, 1000);
   setTimeout(scheduleRender, 4000);
 })();
 
-globalThis.zfTest = { render: () => render(), view: () => view, dropTarget, windowId: () => windowId };
+globalThis.zfTest = { render: () => render({ force: true }), view: () => view, dropTarget, windowId: () => windowId };
