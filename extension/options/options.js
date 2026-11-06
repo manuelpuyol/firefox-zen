@@ -161,7 +161,8 @@ document.getElementById("restore-file").addEventListener("change", async event =
   if (!file) return;
   try {
     const r = await ZF.restoreFolders(JSON.parse(await file.text()));
-    result.textContent = `Restored: ${r.foldersCreated} folders created, ${r.foldersMatched} already there; ${r.tabsMoved} open tabs moved, ${r.tabsOpened} reopened unloaded; ${r.essentialsOpened} Essentials reopened.`;
+    const skipped = r.skippedInContainers ? ` ${r.skippedInContainers} tabs from containers weren't reopened (that needs access to cookies); open them in their container and restore again to put them back.` : "";
+    result.textContent = `Restored: ${r.foldersCreated} folders created, ${r.foldersMatched} already there; ${r.tabsMoved} open tabs moved, ${r.tabsOpened} reopened unloaded; ${r.essentialsOpened} Essentials reopened.${skipped}`;
   } catch (error) {
     result.textContent = `Couldn't restore: ${error.message}`;
   }

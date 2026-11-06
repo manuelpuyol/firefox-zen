@@ -568,6 +568,15 @@ async function dropEmptyRecoveredFolders() {
 // ---------------------------------------------------------------------------
 
 ZF.BACKUP_FORMAT = "zen-folder-tools-backup";
+// Container (cookie store) of a tab. Restore only matches tabs in the same
+// container, and can only reopen tabs outside containers: opening one in a
+// container needs the "cookies" permission, which this extension doesn't have.
+const DEFAULT_CONTAINER = "firefox-default";
+const containerOf = tab => tab.cookieStoreId ?? DEFAULT_CONTAINER;
+const containerField = value => (typeof value === "string" && value.length <= 100 ? value : DEFAULT_CONTAINER);
+const cleanName = name => String(name ?? "").trim().slice(0, 500) || "Folder";
+// Longer addresses (e.g. huge data in a query string) aren't backed up.
+const MAX_URL = 8192;
 
 ZF.isWebUrl = url => {
   try {
@@ -585,11 +594,11 @@ ZF.exportFolders = async () => {
   const all = (await browser.tabs.query({})).filter(t => !t.incognito).sort((a, b) => a.windowId - b.windowId || a.index - b.index);
   for (const tab of all) {
     if (tab.pinned) {
-      if (ZF.isWebUrl(tab.url)) essentials.push({ url: tab.url, title: tab.title ?? "" });
+      if (ZF.isWebUrl(tab.url) && tab.url.length <= MAX_URL) essentials.push({ url: tab.url, title: tab.title ?? "", container: containerOf(tab) });
       continue;
     }
     const place = await ZF.getPlace(tab.id);
-    if (!place) continue;
+    if (!place || tab.url.length > MAX_URL) continue;
     const get = key => browser.sessions.getTabValue(tab.id, key).catch(() => undefined);
     const order = await get(ZF.ORDER_KEY);
     tabs.push({
@@ -598,6 +607,7 @@ ZF.exportFolders = async () => {
       url: tab.url,
       originalUrl: (await get(ZF.ORIGINAL_URL_KEY)) ?? null,
       title: tab.title ?? "",
+      container: containerOf(tab),
     });
   }
   return {
@@ -622,9 +632,9 @@ ZF.parseBackup = data => {
   const str = (v, max) => typeof v === "string" && v.length <= max;
   const num = v => typeof v === "number" && Number.isFinite(v);
   const folders = data.folders.map(f => {
-    if (!str(f?.id, 100) || !f.id || f.id === ZF.ROOT || !str(f.name, 500)) fail("bad folder");
+    if (!str(f?.id, 100) || !f.id || f.id === ZF.ROOT || typeof f.name !== "string") fail("bad folder");
     if (f.parentId !== null && f.parentId !== undefined && !str(f.parentId, 100)) fail("bad folder parent");
-    return { id: f.id, name: f.name.trim() || "Folder", parentId: f.parentId ?? null, collapsed: f.collapsed === true, order: num(f.order) ? f.order : 0 };
+    return { id: f.id, name: cleanName(f.name), parentId: f.parentId ?? null, collapsed: f.collapsed === true, order: num(f.order) ? f.order : 0 };
   });
   const byId = new Map(folders.map(f => [f.id, f]));
   if (byId.size !== folders.length) fail("duplicate folder ids");
@@ -637,14 +647,16 @@ ZF.parseBackup = data => {
       seen.add(p.id);
     }
   }
-  const tabs = data.tabs.map(t => {
-    if (!str(t?.url, 8192) || !(t.place === ZF.ROOT || byId.has(t.place))) fail("bad tab");
-    if (t.originalUrl !== null && t.originalUrl !== undefined && !str(t.originalUrl, 8192)) fail("bad tab address");
-    return { place: t.place, order: num(t.order) ? t.order : null, url: t.url, originalUrl: t.originalUrl ?? null, title: str(t.title, 2000) ? t.title : "" };
+  // Addresses longer than MAX_URL are skipped, as on export.
+  const tabs = data.tabs.filter(t => !(typeof t?.url === "string" && t.url.length > MAX_URL)).map(t => {
+    if (!str(t?.url, MAX_URL) || !(t.place === ZF.ROOT || byId.has(t.place))) fail("bad tab");
+    if (t.originalUrl !== null && t.originalUrl !== undefined && typeof t.originalUrl !== "string") fail("bad tab address");
+    const originalUrl = typeof t.originalUrl === "string" && t.originalUrl.length <= MAX_URL ? t.originalUrl : null;
+    return { place: t.place, order: num(t.order) ? t.order : null, url: t.url, originalUrl, container: containerField(t.container), title: str(t.title, 2000) ? t.title : "" };
   });
-  const essentials = (data.essentials ?? []).map(e => {
-    if (!str(e?.url, 8192)) fail("bad Essential");
-    return { url: e.url, title: str(e.title, 2000) ? e.title : "" };
+  const essentials = (data.essentials ?? []).filter(e => !(typeof e?.url === "string" && e.url.length > MAX_URL)).map(e => {
+    if (!str(e?.url, MAX_URL)) fail("bad Essential");
+    return { url: e.url, title: str(e.title, 2000) ? e.title : "", container: containerField(e.container) };
   });
   return { folders, tabs, essentials };
 };
@@ -655,7 +667,7 @@ ZF.parseBackup = data => {
 // reopened unloaded. Missing Essentials are reopened as pinned tabs.
 ZF.restoreFolders = async raw => {
   const data = ZF.parseBackup(raw);
-  const report = { foldersCreated: 0, foldersMatched: 0, tabsMoved: 0, tabsOpened: 0, essentialsOpened: 0 };
+  const report = { foldersCreated: 0, foldersMatched: 0, tabsMoved: 0, tabsOpened: 0, essentialsOpened: 0, skippedInContainers: 0 };
 
   const idMap = new Map();
   await ZF.mutateFolders(folders => {
@@ -665,7 +677,8 @@ ZF.restoreFolders = async raw => {
       const [f] = pending.splice(pending.findIndex(p => p.parentId === null || idMap.has(p.parentId)), 1);
       const parentId = f.parentId === null ? null : idMap.get(f.parentId);
       const taken = new Set(idMap.values());
-      const same = folders.find(x => (x.parentId ?? null) === parentId && x.name === f.name && !taken.has(x.id));
+      // Names are compared the way parseBackup cleans them up.
+      const same = folders.find(x => (x.parentId ?? null) === parentId && cleanName(x.name) === f.name && !taken.has(x.id));
       if (same) {
         idMap.set(f.id, same.id);
         report.foldersMatched++;
@@ -678,20 +691,33 @@ ZF.restoreFolders = async raw => {
     }
   });
 
+  // Open tabs that entries can be matched to, by container and address. Each
+  // open tab is matched at most once, so duplicates round-trip.
   const open = (await browser.tabs.query({})).filter(t => !t.incognito);
+  const keyOf = (container, url) => `${container}\n${url}`;
   const pool = new Map();
-  const offer = (url, tab) => url && (pool.get(url) ?? pool.set(url, []).get(url)).push(tab);
-  for (const tab of open.filter(t => !t.pinned)) {
-    offer(tab.url, tab);
-    offer(await browser.sessions.getTabValue(tab.id, ZF.ORIGINAL_URL_KEY).catch(() => undefined), tab);
+  const pinnedPool = new Map();
+  const offer = (map, url, tab) => {
+    if (!url) return;
+    const key = keyOf(containerOf(tab), url);
+    (map.get(key) ?? map.set(key, []).get(key)).push(tab);
+  };
+  for (const tab of open) {
+    if (tab.pinned) {
+      offer(pinnedPool, tab.url, tab);
+      continue;
+    }
+    offer(pool, tab.url, tab);
+    offer(pool, await browser.sessions.getTabValue(tab.id, ZF.ORIGINAL_URL_KEY).catch(() => undefined), tab);
   }
   const used = new Set();
-  const take = urls => {
+  const take = async (map, container, urls, accept = async () => true) => {
     for (const url of urls) {
-      const tab = (pool.get(url) ?? []).find(t => !used.has(t.id));
-      if (tab) {
-        used.add(tab.id);
-        return tab;
+      for (const tab of map.get(keyOf(container, url)) ?? []) {
+        if (!used.has(tab.id) && (await accept(tab))) {
+          used.add(tab.id);
+          return tab;
+        }
       }
     }
     return null;
@@ -701,28 +727,38 @@ ZF.restoreFolders = async raw => {
   const windowId = target && !target.incognito ? target.id : (await browser.windows.getAll({ windowTypes: ["normal"] })).find(w => !w.incognito)?.id;
 
   for (const t of data.tabs) {
-    let tab = take([t.url, t.originalUrl].filter(Boolean));
+    let tab = await take(pool, t.container, [t.url, t.originalUrl].filter(Boolean));
     if (tab) report.tabsMoved++;
     else {
+      if (t.container !== DEFAULT_CONTAINER) {
+        report.skippedInContainers++;
+        continue;
+      }
       if (windowId === undefined || !ZF.isWebUrl(t.url)) continue;
       tab = await browser.tabs.create({ windowId, url: t.url, active: false, discarded: true, ...(t.title ? { title: t.title } : {}) }).catch(() => null);
       if (!tab) continue;
       report.tabsOpened++;
     }
-    await ZF.setPlace(tab, t.place === ZF.ROOT ? ZF.ROOT : idMap.get(t.place));
+    const place = t.place === ZF.ROOT ? ZF.ROOT : idMap.get(t.place);
+    const previous = await ZF.getPlace(tab.id);
+    await ZF.setPlace(tab, place);
     if (t.originalUrl && ZF.isWebUrl(t.originalUrl)) await ZF.setMeta(tab.id, ZF.ORIGINAL_URL_KEY, t.originalUrl);
+    // A position only means something within its folder.
     if (t.order !== null) await ZF.setMeta(tab.id, ZF.ORDER_KEY, t.order);
+    else if (previous !== place) await ZF.setMeta(tab.id, ZF.ORDER_KEY, undefined);
   }
 
-  const pinnedUrls = new Set(open.filter(t => t.pinned).map(t => t.url));
   for (const e of data.essentials) {
-    if (pinnedUrls.has(e.url) || windowId === undefined || !ZF.isWebUrl(e.url)) continue;
-    pinnedUrls.add(e.url);
-    const tab = take([e.url]);
+    if (!ZF.isWebUrl(e.url)) continue;
+    // Already an Essential.
+    if (await take(pinnedPool, e.container, [e.url])) continue;
+    // Only a regular tab becomes an Essential; a kept tab stays in its folder.
+    const tab = await take(pool, e.container, [e.url], async candidate => !(await ZF.getPlace(candidate.id)));
     if (tab) {
-      await ZF.setPlace(tab, null);
       await browser.tabs.update(tab.id, { pinned: true });
-    } else if (await browser.tabs.create({ windowId, url: e.url, pinned: true, active: false }).catch(() => null)) {
+    } else if (e.container !== DEFAULT_CONTAINER) {
+      report.skippedInContainers++;
+    } else if (windowId !== undefined && (await browser.tabs.create({ windowId, url: e.url, pinned: true, active: false }).catch(() => null))) {
       report.essentialsOpened++;
     }
   }

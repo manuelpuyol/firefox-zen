@@ -171,10 +171,7 @@ browser.storage.onChanged.addListener(changes => {
   if (changes.settings && before !== after) ZF.configureAutoUnload();
   const glanceBefore = changes.settings?.oldValue?.glance?.enabled !== false;
   const glanceAfter = changes.settings?.newValue?.glance?.enabled !== false;
-  if (changes.settings && glanceBefore !== glanceAfter) {
-    tellPages({ type: "glance-settings", enabled: glanceAfter });
-    syncGlanceScript();
-  }
+  if (changes.settings && glanceBefore !== glanceAfter) syncGlanceScript({ tellPages: true });
   // Turning conversion back on converts existing groups.
   if (changes.settings && !changes.settings.oldValue?.folders?.convertTabGroups && changes.settings.newValue?.folders?.convertTabGroups) migrateSoon();
 });
@@ -192,7 +189,7 @@ browser.runtime.onMessage.addListener((message, sender) => {
 });
 
 function setUp() {
-  syncGlanceScript();
+  syncGlanceScript({ tellPages: false });
   ZF.configureAutoUnload().catch(() => {});
   createMenus();
   ZF.closeOldPlaceholders().catch(() => {});
@@ -291,9 +288,13 @@ const lastGlanceRequest = new Map();
 const GLANCE_SCRIPT = "glance";
 const ALL_SITES = { origins: ["<all_urls>"] };
 let glanceSync = Promise.resolve();
-function syncGlanceScript() {
+const glanceAvailable = async () => (await ZF.getSettings()).glance.enabled && (await browser.permissions.contains(ALL_SITES));
+function syncGlanceScript({ tellPages: tell = true } = {}) {
   glanceSync = glanceSync.then(async () => {
-    const want = (await ZF.getSettings()).glance.enabled && (await browser.permissions.contains(ALL_SITES));
+    const want = await glanceAvailable();
+    // Pages that already have the script keep it until reloaded: tell them
+    // whether Glance is still available (setting and access both).
+    if (tell) tellPages({ type: "glance-settings", enabled: want });
     const have = (await browser.scripting.getRegisteredContentScripts({ ids: [GLANCE_SCRIPT] })).length > 0;
     if (want && !have) {
       await browser.scripting.registerContentScripts([
@@ -308,8 +309,8 @@ function syncGlanceScript() {
   }).catch(error => console.error("Glance script:", error));
   return glanceSync;
 }
-browser.permissions.onAdded.addListener(syncGlanceScript);
-browser.permissions.onRemoved.addListener(syncGlanceScript);
+browser.permissions.onAdded.addListener(() => syncGlanceScript());
+browser.permissions.onRemoved.addListener(() => syncGlanceScript());
 
 // Only Glance messages are answered here; returning nothing for others lets
 // other listeners reply.
@@ -325,12 +326,14 @@ async function handleGlanceMessage(message, sender) {
   if (message.type === "glance-context") {
     return {
       allowed: glanceAllowedIn(sender.tab),
-      enabled: (await ZF.getSettings()).glance.enabled,
+      enabled: await glanceAvailable(),
       inGlance: Boolean((await getGlances())[sender.tab.windowId]),
     };
   }
   if (message.type === "glance-open") {
     if (!glanceAllowedIn(sender.tab) || !(await ZF.getSettings()).glance.enabled || !ZF.isWebUrl(message.url)) return;
+    // Pages opened before access was removed still have the script.
+    if (!(await browser.permissions.contains(ALL_SITES))) return;
     // At most one Glance request per tab every half second.
     const now = Date.now();
     if (now - (lastGlanceRequest.get(sender.tab.id) ?? 0) < 500) return;
