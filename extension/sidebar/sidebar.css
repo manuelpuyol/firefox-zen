@@ -35,7 +35,11 @@ body.no-animations {
   --duration: 0ms;
 }
 
-html {
+/* Only the list under the Essentials scrolls. */
+#scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;
   /* Space for the scrollbar is always reserved, so the list doesn't shift
@@ -43,7 +47,16 @@ html {
   scrollbar-gutter: stable;
 }
 
-html.hide-scrollbar {
+/* The Essentials reserve the same gutter, so their right edge lines up with
+   the rows below. */
+.essentials {
+  overflow: hidden;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+}
+
+html.hide-scrollbar #scroll,
+html.hide-scrollbar .essentials {
   scrollbar-width: none;
 }
 
@@ -60,7 +73,8 @@ html, body {
 body {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   padding: 6px 0 8px;
   box-sizing: border-box;
 }
@@ -80,6 +94,7 @@ button {
   grid-template-columns: repeat(auto-fill, minmax(var(--tile-size), 1fr));
   grid-auto-rows: calc(var(--tile-size) * 0.78);
   gap: 4px;
+  flex: none;
   padding: 0 var(--row-inset) 8px;
   margin-bottom: 4px;
   border-bottom: 1px solid var(--line);
