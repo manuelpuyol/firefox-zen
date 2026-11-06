@@ -171,28 +171,32 @@ ZF.buildView = async windowId => {
   return view;
 };
 
-// Stored positions of kept tabs in `key`, across every window.
-// Unpositioned tabs are ranked exactly as buildView ranks them: by index
-// among the window's visible tabs (hidden tabs aren't shown or counted).
+// Positions of kept tabs in `key`, across every window. Unpositioned tabs
+// are ranked exactly as buildView ranks them: by index among the window's
+// visible tabs. Hidden tabs don't count towards that rank, but hidden tabs
+// with a stored position are included, so a respace renumbers them along
+// with everything else and they reappear where they were.
 async function keptTabsEverywhere(key) {
   const out = [];
   const known = new Set((await ZF.loadFolders()).map(f => f.id));
   const byWindow = new Map();
   for (const tab of await browser.tabs.query({})) {
-    if (tab.hidden) continue;
     if (!byWindow.has(tab.windowId)) byWindow.set(tab.windowId, []);
     byWindow.get(tab.windowId).push(tab);
   }
   for (const tabs of byWindow.values()) {
     tabs.sort((a, b) => a.index - b.index);
-    for (const [i, tab] of tabs.entries()) {
+    let visibleIndex = -1;
+    for (const tab of tabs) {
+      if (!tab.hidden) visibleIndex++;
       if (tab.pinned) continue;
       let place = await ZF.getPlace(tab.id);
       // Same fallback as buildView: a tab whose folder is gone shows at the top level.
       if (place && place !== ZF.ROOT && !known.has(place)) place = ZF.ROOT;
       if (place !== key) continue;
       const order = await browser.sessions.getTabValue(tab.id, ZF.ORDER_KEY).catch(() => undefined);
-      out.push({ tab, order: typeof order === "number" ? order : UNPOSITIONED + i });
+      if (typeof order === "number") out.push({ tab, order });
+      else if (!tab.hidden) out.push({ tab, order: UNPOSITIONED + visibleIndex });
     }
   }
   return out;

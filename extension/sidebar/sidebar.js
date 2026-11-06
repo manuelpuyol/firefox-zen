@@ -124,10 +124,12 @@ async function render({ force = false } = {}) {
   const generation = editGeneration;
   const seq = ++renderSeq;
   const next = await ZF.buildView(windowId);
-  // A newer render started meanwhile and has fresher data. Forced renders
-  // always draw.
-  if (!force && seq !== renderSeq) return;
+  // A newer render started meanwhile and has fresher data; it draws instead.
+  // (While renaming, ordinary renders defer above without counting, so the
+  // newest render is always one that can draw.)
+  if (seq !== renderSeq) return;
   if (generation !== editGeneration) {
+    if (force) return render({ force: true });
     scheduleRender();
     return;
   }
@@ -149,6 +151,19 @@ async function render({ force = false } = {}) {
 
   $("regular").replaceChildren(...view.regular.map(tab => tabRow(tab, 0, "regular")));
   $("separator").classList.toggle("empty", view.regular.length === 0);
+
+  if (renamingFolderId) {
+    const input = document.querySelector(`[data-rename-for="${renamingFolderId}"]`);
+    // The folder is gone: never leave the sidebar stuck in rename mode.
+    if (!input) {
+      renamingFolderId = null;
+      scheduleRender();
+    } else if (document.activeElement !== input) {
+      input.focus();
+      if (input.zfSelection) input.setSelectionRange(...input.zfSelection);
+      else input.select();
+    }
+  }
 }
 
 function isSelected(tab) {
@@ -208,9 +223,7 @@ function descendantTabs(folderId) {
 function folderBlock(folder, depth) {
   const all = descendantTabs(folder.id);
   const title =
-    renamingFolderId === folder.id
-      ? el("input", { className: "rename", value: folder.name, dataset: { renameFor: folder.id } })
-      : el("span", { className: "title", textContent: folder.name });
+    renamingFolderId === folder.id ? renameInput(folder) : el("span", { className: "title", textContent: folder.name });
   const row = el(
     "div",
     {
@@ -462,29 +475,34 @@ function startRename(folderId) {
   renamingFolderId = folderId;
   renderPending = false;
   clearTimeout(renderTimer);
-  render({ force: true }).then(() => {
-    const input = document.querySelector(`[data-rename-for="${folderId}"]`);
-    if (!input) {
-      // Never leave the sidebar stuck in rename mode.
-      if (renamingFolderId === folderId) renamingFolderId = null;
+  render({ force: true });
+}
+
+// Whichever render draws the rename box wires it up, so a redraw mid-rename
+// keeps working save/cancel handlers and what was typed so far.
+function renameInput(folder) {
+  const previous = document.querySelector(`[data-rename-for="${folder.id}"]`);
+  const input = el("input", { className: "rename", value: previous?.value ?? folder.name, dataset: { renameFor: folder.id } });
+  if (previous) input.zfSelection = [previous.selectionStart, previous.selectionEnd];
+  const finish = async save => {
+    // Ignore a box that was replaced by a redraw, or a rename already finished.
+    if (!input.isConnected || renamingFolderId !== folder.id) return;
+    renamingFolderId = null;
+    const name = input.value.trim();
+    try {
+      if (save && name) await ZF.updateFolder(folder.id, { name });
+    } catch (error) {
+      console.error(error);
+    } finally {
       render({ force: true });
-      return;
     }
-    input.focus();
-    input.select();
-    const finish = async save => {
-      if (renamingFolderId !== folderId) return;
-      renamingFolderId = null;
-      const name = input.value.trim();
-      if (save && name) await ZF.updateFolder(folderId, { name });
-      render({ force: true });
-    };
-    input.addEventListener("keydown", e => {
-      if (e.key === "Enter") finish(true);
-      if (e.key === "Escape") finish(false);
-    });
-    input.addEventListener("blur", () => finish(true));
+  };
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter") finish(true);
+    if (e.key === "Escape") finish(false);
   });
+  input.addEventListener("blur", () => finish(true));
+  return input;
 }
 
 // ---------------------------------------------------------------------------

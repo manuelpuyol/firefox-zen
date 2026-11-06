@@ -128,6 +128,26 @@ browser.tabs.onUpdated.addListener((_id, _change, tab) => ZF.keepEssentialLoaded
   properties: ["pinned"],
 });
 
+// A kept tab that was hidden may have been renumbered by a respace while it
+// was away; once it's visible again, put Firefox's tab order back in line
+// with the sidebar. Debounced per window: extensions can unhide many at once.
+ZF.local.normalizeOrder = ZF.normalizeOrder;
+const unhidden = new Map();
+browser.tabs.onUpdated.addListener(
+  (_id, change, tab) => {
+    if (change.hidden !== false) return;
+    clearTimeout(unhidden.get(tab.windowId));
+    unhidden.set(
+      tab.windowId,
+      setTimeout(() => {
+        unhidden.delete(tab.windowId);
+        ZF.runQueued("normalizeOrder", [tab.windowId]).catch(() => {});
+      }, 200)
+    );
+  },
+  { properties: ["hidden"] }
+);
+
 browser.storage.onChanged.addListener(changes => {
   // Only auto-unload settings matter here; ignore e.g. tile-size changes.
   const before = JSON.stringify(changes.settings?.oldValue?.autoUnload ?? null);
