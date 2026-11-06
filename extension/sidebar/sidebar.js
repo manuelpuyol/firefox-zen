@@ -158,6 +158,7 @@ async function render({ force = false } = {}) {
 
   $("regular").replaceChildren(...view.regular.map(tab => tabRow(tab, 0, "regular")));
   $("separator").classList.toggle("empty", view.regular.length === 0);
+  updateFolderBar();
 
   if (renamingFolderId) {
     const input = document.querySelector(`[data-rename-for="${renamingFolderId}"]`);
@@ -171,6 +172,32 @@ async function render({ force = false } = {}) {
       else input.select();
     }
   }
+}
+
+// Collapse all when any folder is open, Expand all when every one is closed.
+// No line at the top when there's nothing above or below it.
+function updateFolderBar() {
+  const bar = $("folder-bar");
+  bar.classList.toggle("hidden", !view.essentials.length && !view.folders.length);
+  bar.classList.toggle("no-folders", !view.folders.length);
+  $("collapse-all").textContent = view.folders.some(f => !f.collapsed) ? "Collapse all" : "Expand all";
+}
+
+async function toggleAllFolders() {
+  const collapsed = view.folders.some(f => !f.collapsed);
+  // Same as clicking each folder: change the rows now (animated), save after.
+  editGeneration++;
+  for (const folder of view.folders) {
+    if (folder.collapsed === collapsed) continue;
+    folder.collapsed = collapsed;
+    const block = document.querySelector(`[data-folder-block="${folder.id}"]`);
+    block?.querySelector(":scope > .children")?.classList.toggle("collapsed", collapsed);
+    block?.querySelector(":scope > .row .icon")?.replaceWith(folderIcon(!collapsed));
+  }
+  patched = true;
+  updateFolderBar();
+  await ZF.setAllCollapsed(collapsed);
+  editGeneration++;
 }
 
 function isSelected(tab) {
@@ -399,6 +426,7 @@ document.addEventListener("click", async event => {
   if (event.target.closest("#new-tab")) return browser.tabs.create({ windowId });
   if (event.target.closest("#settings")) return browser.runtime.openOptionsPage();
   if (event.target.closest("#clear")) return onClear();
+  if (event.target.closest("#collapse-all")) return toggleAllFolders();
   if (!item || event.target.closest(".rename")) return;
 
   if (item.dataset.folderId) {
@@ -410,6 +438,7 @@ document.addEventListener("click", async event => {
     block.querySelector(":scope > .children")?.classList.toggle("collapsed", folder.collapsed);
     item.querySelector(".icon")?.replaceWith(folderIcon(!folder.collapsed));
     patched = true;
+    updateFolderBar();
     await ZF.updateFolder(folder.id, { collapsed: folder.collapsed });
     editGeneration++;
     return;

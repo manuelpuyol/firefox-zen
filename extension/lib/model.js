@@ -448,6 +448,12 @@ ZF.updateFolder = (folderId, changes) =>
     if (folder) Object.assign(folder, changes);
   });
 
+// Open or close every folder at once.
+ZF.setAllCollapsed = collapsed =>
+  ZF.mutateFolders(folders => {
+    for (const folder of folders) folder.collapsed = collapsed;
+  });
+
 // Remove a folder but keep everything in it: its subfolders and tabs move up
 // to its parent.
 ZF.removeFolder = async folderId => {
@@ -852,6 +858,7 @@ ZF.migrateNativeGroups = async (onlyGroupIds = null) => {
 ZF.REMOTE_CALLS = [
   "createFolder",
   "updateFolder",
+  "setAllCollapsed",
   "removeFolder",
   "moveTabs",
   "moveItems",

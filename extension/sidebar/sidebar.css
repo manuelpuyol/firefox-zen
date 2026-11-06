@@ -95,9 +95,7 @@ button {
   grid-auto-rows: calc(var(--tile-size) * 0.78);
   gap: 4px;
   flex: none;
-  padding: 0 var(--row-inset) 8px;
-  margin-bottom: 4px;
-  border-bottom: 1px solid var(--line);
+  padding: 0 var(--row-inset) 2px;
 }
 
 .essentials:empty {
@@ -284,6 +282,21 @@ button {
   background: var(--line);
 }
 
+/* The line under the Essentials, with Collapse all / Expand all. */
+#folder-bar {
+  flex: none;
+  margin-block: 0 2px;
+}
+
+#folder-bar.hidden {
+  display: none;
+}
+
+#folder-bar.no-folders #collapse-all {
+  visibility: hidden;
+}
+
+#collapse-all,
 #clear {
   font-size: calc(var(--text-size) * 0.875);
   color: var(--text-dim);
@@ -296,6 +309,7 @@ button {
   background: color-mix(in srgb, currentColor 12%, transparent);
 }
 
+#collapse-all:hover,
 #clear:hover {
   background: var(--hover);
   color: var(--text);
