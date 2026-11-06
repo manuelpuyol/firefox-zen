@@ -128,19 +128,20 @@ browser.tabs.onUpdated.addListener((_id, _change, tab) => ZF.keepEssentialLoaded
   properties: ["pinned"],
 });
 
-// A kept tab that was hidden may have been renumbered by a respace while it
-// was away; once it's visible again, put Firefox's tab order back in line
-// with the sidebar. Debounced per window: extensions can unhide many at once.
+// Hiding or showing a tab changes where unpositioned kept tabs fall back to,
+// and a tab that was hidden may have been renumbered by a respace while it
+// was away; put Firefox's tab order back in line with the sidebar. Debounced
+// per window: extensions can hide or show many at once.
 ZF.local.normalizeOrder = ZF.normalizeOrder;
-const unhidden = new Map();
+const visibilityChanged = new Map();
 browser.tabs.onUpdated.addListener(
   (_id, change, tab) => {
-    if (change.hidden !== false) return;
-    clearTimeout(unhidden.get(tab.windowId));
-    unhidden.set(
+    if (typeof change.hidden !== "boolean") return;
+    clearTimeout(visibilityChanged.get(tab.windowId));
+    visibilityChanged.set(
       tab.windowId,
       setTimeout(() => {
-        unhidden.delete(tab.windowId);
+        visibilityChanged.delete(tab.windowId);
         ZF.runQueued("normalizeOrder", [tab.windowId]).catch(() => {});
       }, 200)
     );
