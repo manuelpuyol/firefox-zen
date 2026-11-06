@@ -91,7 +91,8 @@ browser.menus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === "zf-unkeep") ZF.moveTabs(unpinned.filter((_, i) => places[i]).map(t => t.id), null);
   if (info.menuItemId === "zf-folder-with-tab") {
     const folder = await ZF.createFolder("New Folder", null);
-    await ZF.moveTab(tab.id, folder.id);
+    // Every selected tab except Essentials, in tab order.
+    await ZF.moveTabs(unpinned.sort((a, b) => a.index - b.index).map(t => t.id), folder.id);
     browser.runtime.sendMessage({ type: "zf-rename", folderId: folder.id, windowId: tab.windowId }).catch(() => {});
   }
 });
