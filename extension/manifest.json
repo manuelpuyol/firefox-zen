@@ -1,22 +1,23 @@
 {
   "manifest_version": 3,
   "name": "Zen Folder Tools",
-  "version": "0.2.0",
-  "description": "Zen-style extras for Firefox: keep empty folders, reset folder tabs to their original URL, and Glance (Alt+click a link to preview it in a floating window).",
+  "version": "0.3.0",
+  "description": "A Zen-style tab sidebar for Firefox: Essentials, kept tabs with nested folders, and regular tabs. Closing a kept tab unloads it first. Also: reset kept tabs to their original URL, and Glance (Alt+click a link to preview it).",
   "icons": {
     "48": "icons/icon.svg",
     "96": "icons/icon.svg"
   },
   "permissions": [
     "tabs",
-    "tabHide",
+    "tabGroups",
     "sessions",
     "menus",
+    "menus.overrideContext",
     "storage"
   ],
   "background": {
     "scripts": [
-      "folders.js",
+      "lib/model.js",
       "background.js"
     ]
   },
@@ -37,7 +38,7 @@
       "suggested_key": {
         "default": "Alt+Shift+R"
       },
-      "description": "Reset the current folder tab to its original URL"
+      "description": "Reset the current kept tab to its original URL"
     },
     "glance-expand": {
       "suggested_key": {
@@ -56,5 +57,11 @@
         ]
       }
     }
+  },
+  "sidebar_action": {
+    "default_panel": "sidebar/sidebar.html",
+    "default_title": "Zen Tabs",
+    "default_icon": "icons/icon.svg",
+    "open_at_install": true
   }
 }

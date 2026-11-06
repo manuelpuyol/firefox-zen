@@ -1,0 +1,339 @@
+/* Zen 1.24b measurements: rows 40px with an 8px inset 36px highlight,
+ * 14px radius, favicon at 17px, title at 43px, 13.75px text. */
+:root {
+  color-scheme: light dark;
+  --row-height: 40px;
+  --row-inset: 8px;
+  --row-padding: 9px;
+  --radius: 14px;
+  --indent: 14px;
+  --text: light-dark(rgb(0 0 0 / 0.85), rgb(255 255 255 / 0.85));
+  --text-dim: light-dark(rgb(0 0 0 / 0.5), rgb(255 255 255 / 0.5));
+  --hover: light-dark(rgb(0 0 0 / 0.05), rgb(226 226 226 / 0.07));
+  --selected: light-dark(rgb(255 255 255 / 0.8), rgb(198 207 216 / 0.22));
+  --tile: light-dark(rgb(0 0 0 / 0.05), rgb(212 220 232 / 0.135));
+  --line: light-dark(rgb(0 0 0 / 0.1), rgb(255 255 255 / 0.1));
+  --accent: light-dark(rgb(0 0 0 / 0.6), rgb(255 255 255 / 0.7));
+  --ghost: 0.6;
+  --duration: 180ms;
+}
+
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+html, body {
+  margin: 0;
+  background: transparent;
+  color: var(--text);
+  font: menu;
+  font-size: 13.75px;
+  user-select: none;
+  -moz-user-select: none;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  padding: 6px 0 8px;
+  box-sizing: border-box;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: default;
+}
+
+/* Essentials grid */
+.essentials {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  grid-auto-rows: 50px;
+  gap: 4px;
+  padding: 0 var(--row-inset) 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.essentials:empty {
+  display: none;
+}
+
+.tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  background: var(--tile);
+  position: relative;
+}
+
+.tile:hover {
+  background: color-mix(in srgb, var(--tile), currentColor 8%);
+}
+
+.tile.active {
+  background: var(--selected);
+}
+
+.tile.discarded .favicon {
+  opacity: var(--ghost);
+  filter: saturate(0);
+}
+
+/* Rows */
+.row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: var(--row-height);
+  padding-inline: calc(var(--row-inset) + var(--row-padding) + var(--depth, 0) * var(--indent)) calc(var(--row-inset) + 6px);
+  box-sizing: border-box;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.row::before {
+  content: "";
+  position: absolute;
+  inset: 2px var(--row-inset);
+  border-radius: var(--radius);
+  z-index: -1;
+}
+
+.row:hover::before {
+  background: var(--hover);
+}
+
+.row.active::before {
+  background: var(--selected);
+  box-shadow: 0 0.8px 1.5px rgb(0 0 0 / 0.05);
+}
+
+.favicon,
+.icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  mask-image: linear-gradient(to right, black calc(100% - 24px), transparent);
+}
+
+.row.tab.discarded:not(.active) .favicon,
+.row.tab.discarded:not(.active) .title {
+  opacity: var(--ghost);
+  filter: saturate(0);
+}
+
+.row .close,
+.row .reset,
+.row .audio {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+.row .close,
+.row .reset {
+  display: none;
+}
+
+.row:hover .close,
+.row.active .close,
+.row .reset.changed {
+  display: grid;
+}
+
+.row .close:hover,
+.row .reset:hover,
+.row .audio:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+/* Folders */
+.row.folder .title {
+  font-weight: 600;
+}
+
+.row.folder .icon {
+  width: 20px;
+  height: 20px;
+  margin-inline: -2px;
+}
+
+.count {
+  flex: none;
+  min-width: 14px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--hover);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 14px;
+  text-align: center;
+  opacity: 0.7;
+}
+
+.rename {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  background: var(--hover);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 4px;
+}
+
+/* Folder open/close animation */
+.children {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows var(--duration) ease-in-out, opacity var(--duration) ease-in-out;
+}
+
+.children > .inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.children.collapsed {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+/* Separator + Clear */
+.separator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px calc(var(--row-inset) + 8px);
+  height: 24px;
+}
+
+.separator .line {
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+#clear {
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+#clear:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.separator.empty #clear {
+  visibility: hidden;
+}
+
+#pinned:empty::after {
+  content: "Drag tabs here to keep them";
+  display: block;
+  margin: 4px calc(var(--row-inset) + var(--row-padding));
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+#new-tab {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: var(--row-height);
+  margin-inline: var(--row-inset);
+  padding-inline: var(--row-padding);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  text-align: start;
+}
+
+#new-tab:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+#new-tab .plus {
+  width: 16px;
+  font-size: 18px;
+  text-align: center;
+}
+
+/* Drag and drop */
+.dragging {
+  opacity: 0.4;
+}
+
+.drop-before::after,
+.drop-after::after {
+  content: "";
+  position: absolute;
+  left: calc(var(--row-inset) + 4px);
+  right: calc(var(--row-inset) + 4px);
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.drop-before::after {
+  top: 0;
+}
+
+.drop-after::after {
+  bottom: 0;
+}
+
+.tile.drop-before::after,
+.tile.drop-after::after {
+  top: 6px;
+  bottom: 6px;
+  left: auto;
+  right: auto;
+  width: 2px;
+  height: auto;
+}
+
+.tile.drop-before::after {
+  left: -3px;
+}
+
+.tile.drop-after::after {
+  right: -3px;
+}
+
+.drop-into::before {
+  background: var(--hover) !important;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.drop-zone {
+  outline: 2px dashed var(--line);
+  outline-offset: -4px;
+  border-radius: var(--radius);
+}

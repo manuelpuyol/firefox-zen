@@ -1,64 +1,91 @@
 "use strict";
 
-const ORIGINAL_URL = "originalUrl";
-const NO_GROUP = -1;
+const SIDEBAR_URL = browser.runtime.getURL("sidebar/sidebar.html");
 
 // ---------------------------------------------------------------------------
-// Folder tabs: remember the URL a tab had when it entered a tab group, and
-// reset to it on demand (Zen pinned-tab "reset" behaviour).
+// Folder tabs: each tab kept in the sidebar's pinned section remembers the
+// URL it had when it got there, and can be reset to it (Zen pinned-tab reset).
 // ---------------------------------------------------------------------------
-
-function isRealUrl(url) {
-  return url && !url.startsWith("about:") && !url.startsWith(browser.runtime.getURL(""));
-}
-
-async function syncOriginalUrl(tab) {
-  if (tab.groupId === undefined || tab.groupId === NO_GROUP) {
-    await browser.sessions.removeTabValue(tab.id, ORIGINAL_URL);
-    return;
-  }
-  if (!isRealUrl(tab.url)) return;
-  const stored = await browser.sessions.getTabValue(tab.id, ORIGINAL_URL);
-  if (!stored) await browser.sessions.setTabValue(tab.id, ORIGINAL_URL, tab.url);
-}
 
 async function resetTab(tab) {
-  const original = await browser.sessions.getTabValue(tab.id, ORIGINAL_URL);
+  const original = await browser.sessions.getTabValue(tab.id, ZF.ORIGINAL_URL_KEY);
   if (original && original !== tab.url) await browser.tabs.update(tab.id, { url: original });
 }
 
 async function markCurrentAsOriginal(tab) {
-  if (tab.groupId !== NO_GROUP && isRealUrl(tab.url)) {
-    await browser.sessions.setTabValue(tab.id, ORIGINAL_URL, tab.url);
-  }
+  if (ZF.isRealUrl(tab.url)) await browser.sessions.setTabValue(tab.id, ZF.ORIGINAL_URL_KEY, tab.url);
 }
 
-browser.tabs.onUpdated.addListener(
-  (_id, change, tab) => {
-    if ("groupId" in change || change.status === "complete") syncOriginalUrl(tab);
-  },
-  { properties: ["groupId", "status"] }
-);
-
-browser.menus.create({ id: "reset-tab", title: "Reset to Original URL", contexts: ["tab"] }, () => void browser.runtime.lastError);
-browser.menus.create({ id: "set-original", title: "Use Current Page as Original URL", contexts: ["tab"] }, () => void browser.runtime.lastError);
+function createMenus() {
+  const items = [
+    // Tab menu (Firefox's tab context menu, also shown for tabs in the sidebar)
+    { id: "zf-keep", title: "Keep in Sidebar", contexts: ["tab"] },
+    { id: "zf-unkeep", title: "Move to Regular Tabs", contexts: ["tab"] },
+    { id: "zf-folder-with-tab", title: "Move to New Folder", contexts: ["tab"] },
+    { id: "reset-tab", title: "Reset to Original URL", contexts: ["tab"] },
+    { id: "set-original", title: "Use Current Page as Original URL", contexts: ["tab"] },
+    // Sidebar folder menu
+    { id: "zf-new-folder", title: "New Folder", contexts: ["all"], documentUrlPatterns: [SIDEBAR_URL] },
+    { id: "zf-new-subfolder", title: "New Subfolder", contexts: ["all"], documentUrlPatterns: [SIDEBAR_URL] },
+    { id: "zf-rename-folder", title: "Rename Folder", contexts: ["all"], documentUrlPatterns: [SIDEBAR_URL] },
+    { id: "zf-remove-folder", title: "Remove Folder (Keep Tabs)", contexts: ["all"], documentUrlPatterns: [SIDEBAR_URL] },
+  ];
+  browser.menus.removeAll().then(() => {
+    for (const item of items) browser.menus.create(item, () => void browser.runtime.lastError);
+  });
+}
 
 browser.menus.onShown.addListener(async (info, tab) => {
   if (!info.contexts.includes("tab") || !tab) return;
-  const grouped = tab.groupId !== undefined && tab.groupId !== NO_GROUP;
-  const original = grouped ? await browser.sessions.getTabValue(tab.id, ORIGINAL_URL) : null;
-  browser.menus.update("reset-tab", { visible: grouped, enabled: Boolean(original && original !== tab.url) });
-  browser.menus.update("set-original", { visible: grouped && isRealUrl(tab.url) && original !== tab.url });
+  const kept = !tab.pinned && Boolean(await ZF.getPlace(tab.id));
+  const original = kept ? await browser.sessions.getTabValue(tab.id, ZF.ORIGINAL_URL_KEY) : null;
+  browser.menus.update("zf-keep", { visible: !tab.pinned && !kept });
+  browser.menus.update("zf-unkeep", { visible: kept });
+  browser.menus.update("zf-folder-with-tab", { visible: !tab.pinned });
+  browser.menus.update("reset-tab", { visible: kept, enabled: Boolean(original && original !== tab.url) });
+  browser.menus.update("set-original", { visible: kept && ZF.isRealUrl(tab.url) && original !== tab.url });
+  for (const id of ["zf-new-folder", "zf-new-subfolder", "zf-rename-folder", "zf-remove-folder"]) {
+    browser.menus.update(id, { visible: false });
+  }
   browser.menus.refresh();
 });
 
-browser.menus.onClicked.addListener((info, tab) => {
+browser.menus.onClicked.addListener(async (info, tab) => {
+  if (!tab) return;
   if (info.menuItemId === "reset-tab") resetTab(tab);
   if (info.menuItemId === "set-original") markCurrentAsOriginal(tab);
+  if (info.menuItemId === "zf-keep") ZF.moveTab(tab.id, ZF.ROOT);
+  if (info.menuItemId === "zf-unkeep") ZF.moveTab(tab.id, null);
+  if (info.menuItemId === "zf-folder-with-tab") {
+    const folder = await ZF.createFolder("New Folder", null);
+    await ZF.moveTab(tab.id, folder.id);
+    browser.runtime.sendMessage({ type: "zf-rename", folderId: folder.id, windowId: tab.windowId }).catch(() => {});
+  }
 });
 
-browser.runtime.onInstalled.addListener(async () => {
-  for (const tab of await browser.tabs.query({})) await syncOriginalUrl(tab);
+// Firefox's own "Add Tab to New Group" creates a native tab group; turn it
+// into a sidebar folder once it has a name.
+let migrating = Promise.resolve();
+function migrateSoon() {
+  migrating = migrating.then(() => ZF.migrateNativeGroups()).catch(() => {});
+}
+
+// Wait until the group has a name: Firefox asks for one right after creating
+// it, and converting before that would lose it. Unnamed groups are converted
+// on the next startup.
+for (const event of ["onCreated", "onUpdated"]) {
+  browser.tabGroups[event].addListener(group => {
+    if (group.title?.trim()) migrateSoon();
+  });
+}
+
+browser.runtime.onInstalled.addListener(() => {
+  createMenus();
+  migrateSoon();
+});
+browser.runtime.onStartup.addListener(() => {
+  createMenus();
+  migrateSoon();
 });
 
 // ---------------------------------------------------------------------------
@@ -145,7 +172,7 @@ browser.windows.onRemoved.addListener(async windowId => {
 });
 
 browser.commands.onCommand.addListener(async (command, tab) => {
-  if (command === "reset-tab" && tab) await resetTab(tab);
+  if (command === "reset-tab" && tab && (await ZF.getPlace(tab.id))) await resetTab(tab);
   if (command === "glance-expand") {
     const focused = await browser.windows.getLastFocused();
     await expandGlance(focused.id);

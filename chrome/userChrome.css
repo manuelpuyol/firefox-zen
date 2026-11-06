@@ -461,6 +461,55 @@
   opacity: 0.8;
 }
 
+/* ---------------------------------------------------------------------------
+ * 8. Zen Folder Tools sidebar. While its panel is open it replaces Firefox's
+ *    own tab list: hide the native vertical tabs and the panel header, and
+ *    give the panel the Zen sidebar width.
+ * ------------------------------------------------------------------------ */
+
+:root:has(#sidebar-box[sidebarcommand="zen-folder-tools_manuelpuyol_dev-sidebar-action"]:not([hidden])) {
+  sidebar-main,
+  #sidebar-launcher-splitter {
+    display: none !important;
+  }
+
+  #sidebar-header {
+    display: none !important;
+  }
+
+  #sidebar-box {
+    min-width: 220px !important;
+    width: 300px;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+
+  #sidebar {
+    background: transparent !important;
+  }
+
+  #tabbrowser-tabbox {
+    padding-inline-start: 0 !important;
+  }
+}
+
+/* Extension sidebar panels have their own header (title + close button) in a
+ * separate document that doesn't say which extension it belongs to, so this
+ * hides it for every extension sidebar. */
+#webextpanels-window {
+  background: transparent !important;
+
+  #sidebar-panel-header {
+    display: none !important;
+  }
+
+  #webext-panels-browser {
+    background: transparent !important;
+  }
+}
+
 /* @generated — do not edit below this line; run generate_css.py */
 
 #tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "]:not([hasactivetab]) > .tab-group-label-container,

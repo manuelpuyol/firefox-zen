@@ -62,15 +62,32 @@ Run `./install.sh` again to apply changes.
 
 ## Extension: Zen Folder Tools
 
-`extension/` is an optional extension with Zen features that CSS can't provide:
+`extension/` is an optional extension that replaces Firefox's tab list with a Zen-style sidebar, plus a few extras CSS can't provide.
 
-- **Empty folders stay:** Firefox deletes a tab group when its last tab leaves. The extension keeps one hidden placeholder tab in every folder (as Zen does internally), so emptied folders survive. Placeholders don't show in the sidebar or the `+N` count, and are closed if their folder is ungrouped. The first time it hides a tab, Firefox shows a one-off notice about an extension hiding tabs.
-- **Reset folder tabs:** each tab in a tab group remembers the URL it had when it joined the group.
-  - Right-click the tab → **Reset to Original URL**, or press Option+Shift+R.
-  - **Use Current Page as Original URL** changes the remembered URL.
+### Sidebar
+
+Opens in Firefox's sidebar panel; `userChrome.css` hides Firefox's own vertical tabs while it's open. Top to bottom:
+
+- **Essentials:** Firefox's pinned tabs, as tiles.
+- **Kept tabs:** tabs and folders that stay around, with **real nested subfolders** (subfolders are listed before a folder's own tabs, like Zen). Folders can be empty. Each folder shows a `+N` count of every tab inside it, subfolders included.
+- **Separator with Clear:** closes all regular tabs.
+- **Regular tabs**, then **New Tab**.
+
+Behaviour:
+
+- **Close to unload:** closing a loaded Essential or kept tab from the sidebar (× or middle-click) unloads it; closing it again while unloaded closes it (Essentials are never closed this way). Cmd+W can't be taken over by an extension, so it always closes.
+- **Drag and drop:** reorder tabs and folders, drop a tab on a folder to move it in, drop a folder on a folder to nest it, drag between Essentials, kept and regular tabs. Firefox's real tab order is kept in the same order as the sidebar.
+- **Menus:** right-clicking a tab shows Firefox's own tab menu plus *Keep in Sidebar*, *Move to Regular Tabs*, *Move to New Folder* and the reset items. Right-clicking a folder or empty space offers *New Folder*, *New Subfolder*, *Rename Folder* and *Remove Folder (Keep Tabs)*. Double-click a folder to rename it.
+- **Firefox tab groups become folders:** on install, existing tab groups (including the leading-space subfolder convention) are converted. A group created later with Firefox's own menu becomes a folder once it's named.
+
+### Extras
+
+- **Reset kept tabs:** each kept tab remembers the URL it had when it was kept. A ↺ button appears in the sidebar when it has navigated away; also in the tab menu (**Reset to Original URL**) and Option+Shift+R. **Use Current Page as Original URL** changes it.
 - **Glance:** Option+click a link to open it in a centred floating window.
   - Escape, or clicking back on the main window, closes it.
   - Option+Shift+G opens it as a regular tab next to the one you came from.
+
+### Installing
 
 Release Firefox only installs signed extensions. To install:
 
@@ -86,11 +103,10 @@ Things Zen does that this can't reproduce:
 
 - **Spaces:** Firefox has no equivalent.
 - **Translucency:** Zen uses a darker macOS material (HUD) that Firefox doesn't expose, so the sidebar is tinted with CSS instead.
-- **Subfolders are a naming convention:** Firefox tab groups can't nest, so a subfolder is a separate group shown indented under the one above it. That means:
-  - Firefox won't drop a group inside another group, so a subfolder always sits after its parent folder's own tabs. The theme shows subfolders above those tabs anyway (with CSS `order`), but keyboard navigation and drag-and-drop still follow Firefox's real order, and you can't mix subfolders in between a folder's tabs.
-  - A folder's `+N` count only includes its own tabs, not its subfolders' (Zen counts both).
-- **Folder tabs aren't pinned:** Zen keeps folder tabs pinned. Here they're regular tabs; the extension adds the reset-to-original-URL part.
-- **Close-to-unload:** closing a folder tab unloads it in Zen. Firefox can only fake this by reopening the tab, which flickers.
+- **Without the extension, subfolders are a naming convention:** Firefox tab groups can't nest, so a subfolder is a separate group shown indented under the one above it. Dragging a subfolder or dropping a tab into one doesn't work reliably, and a folder's `+N` count leaves out its subfolders. The extension's sidebar has real subfolders instead.
+- **Folder tabs aren't pinned without the extension:** they're regular tabs in a group.
+- **Close-to-unload with Cmd+W:** the extension's sidebar unloads kept tabs on first close, but Cmd+W always closes; extensions can't take over that shortcut.
+- **The extension sidebar isn't translucent:** Firefox draws extension panels opaque, so it uses a solid dark (or light) background.
 - **Glance:** opens a separate window rather than an overlay inside the page.
 - **New tabs:** Firefox creates the tab immediately; Zen waits until you press Enter in the floating URL bar.
 
