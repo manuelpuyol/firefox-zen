@@ -94,7 +94,7 @@ The gear button at the bottom of the sidebar (or `about:addons` → Zen Folder T
 - **Keyboard shortcuts:** current shortcuts, with a link to Firefox's shortcut editor.
 
 - **Reset kept tabs:** each kept tab remembers the URL it had when it was kept. A ↺ button appears in the sidebar when it has navigated away; also in the tab menu (**Reset to Original URL**) and Option+Shift+R. **Use Current Page as Original URL** changes it.
-- **Glance:** Option+click a link to open it in a centred floating window.
+- **Glance:** Option+click a link in a page (not inside embedded frames) to open it in a centred floating window.
   - Escape, or clicking back on the main window, closes it.
   - Option+Shift+G opens it as a regular tab next to the one you came from.
 

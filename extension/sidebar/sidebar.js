@@ -204,6 +204,54 @@ function folderBlock(folder, depth) {
 }
 
 // ---------------------------------------------------------------------------
+// In-place updates. The most frequent events (switching tabs, title, favicon
+// and unload changes) only touch the affected rows instead of rebuilding the
+// list, which also avoids re-reading every tab's session values.
+// ---------------------------------------------------------------------------
+
+function rowsFor(tabId) {
+  return document.querySelectorAll(`[data-tab-id="${tabId}"]`);
+}
+
+function patchDone() {
+  lastSignature = signature(view);
+}
+
+function onTabActivated({ tabId, previousTabId, windowId: activatedWindow }) {
+  if (activatedWindow !== windowId) return;
+  const next = view?.tabsById.get(tabId);
+  if (busy() || !next || !rowsFor(tabId).length) return scheduleRender();
+  const previous = view.tabsById.get(previousTabId);
+  if (previous) previous.active = false;
+  next.active = true;
+  view.activeId = tabId;
+  for (const node of document.querySelectorAll(".active[data-tab-id]")) node.classList.remove("active");
+  for (const node of rowsFor(tabId)) node.classList.add("active");
+  patchDone();
+}
+
+function onTabPatched(tabId, change, tab) {
+  const known = view?.tabsById.get(tabId);
+  const nodes = rowsFor(tabId);
+  if (busy() || !known || !nodes.length) return scheduleRender();
+  Object.assign(known, { title: tab.title, url: tab.url, favIconUrl: tab.favIconUrl, discarded: tab.discarded });
+  for (const node of nodes) {
+    node.title = tab.title;
+    node.classList.toggle("discarded", Boolean(tab.discarded));
+    const title = node.querySelector(":scope > .title");
+    if (title) title.textContent = tab.title || tab.url;
+    if ("favIconUrl" in change) node.querySelector(":scope > .favicon")?.replaceWith(favicon(tab));
+    const reset = node.querySelector(".reset");
+    if (reset) reset.classList.toggle("changed", Boolean(known.zfOriginalUrl && tab.url !== known.zfOriginalUrl && ZF.isRealUrl(tab.url)));
+    const close = node.querySelector(".close");
+    if (close && "discarded" in change && node.dataset.place !== "regular") {
+      close.title = tab.discarded || !settings.sidebar.unloadOnClose ? "Close tab" : "Unload tab (close again to remove)";
+    }
+  }
+  patchDone();
+}
+
+// ---------------------------------------------------------------------------
 // Clicks
 // ---------------------------------------------------------------------------
 
@@ -436,12 +484,14 @@ document.addEventListener("drop", async event => {
 
 (async () => {
   windowId = (await browser.windows.getCurrent()).id;
-  for (const event of ["onCreated", "onRemoved", "onActivated", "onMoved", "onAttached", "onDetached", "onReplaced"]) {
+  for (const event of ["onCreated", "onRemoved", "onMoved", "onAttached", "onDetached", "onReplaced"]) {
     browser.tabs[event].addListener(scheduleRender);
   }
+  browser.tabs.onActivated.addListener(onTabActivated);
+  browser.tabs.onUpdated.addListener(onTabPatched, { windowId, properties: ["title", "url", "favIconUrl", "discarded"] });
   browser.tabs.onUpdated.addListener(scheduleRender, {
     windowId,
-    properties: ["title", "url", "favIconUrl", "discarded", "audible", "mutedInfo", "pinned", "hidden"],
+    properties: ["audible", "mutedInfo", "pinned", "hidden"],
   });
   browser.storage.onChanged.addListener(changes => {
     if (changes.settings) applySettings(ZF.normalizeSettings(changes.settings.newValue));
