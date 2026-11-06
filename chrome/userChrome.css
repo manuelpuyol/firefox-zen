@@ -495,6 +495,13 @@
   }
 }
 
+/* browser.tabs.allow_transparent_browser (user.js) lets the extension sidebar
+ * show the window's translucent material, but also makes web pages without
+ * a background see-through. Paint the normal page background behind them. */
+#tabbrowser-tabpanels .browserStack {
+  background-color: var(--tabpanel-background-color) !important;
+}
+
 /* Extension sidebar panels have their own header (title + close button) in a
  * separate document that doesn't say which extension it belongs to, so this
  * hides it for every extension sidebar. */

@@ -185,18 +185,11 @@ function folderBlock(folder, depth) {
     [folderIcon(!folder.collapsed), title, all.length ? el("span", { className: "count", textContent: `+${all.length}` }) : null]
   );
 
-  const inner = el("div", { className: "inner" });
-  for (const child of ZF.childrenOf(view.folders, folder.id)) inner.append(folderBlock(child, depth + 1));
-  for (const tab of view.byPlace.get(folder.id) ?? []) inner.append(tabRow(tab, depth + 1, folder.id));
-  const children = el("div", { className: `children${folder.collapsed ? " collapsed" : ""}` }, [inner]);
-
-  // Like Zen, a collapsed folder still shows its active tab.
-  const active = folder.collapsed ? all.find(t => t.active) : null;
-  return el("div", { className: "folder-block", dataset: { folderBlock: folder.id } }, [
-    row,
-    children,
-    active ? tabRow(active, depth + 1, active.zfPlace) : null,
-  ]);
+  // A collapsed folder still shows its active tab (CSS keeps that row).
+  const children = el("div", { className: `children${folder.collapsed ? " collapsed" : ""}` });
+  for (const child of ZF.childrenOf(view.folders, folder.id)) children.append(folderBlock(child, depth + 1));
+  for (const tab of view.byPlace.get(folder.id) ?? []) children.append(tabRow(tab, depth + 1, folder.id));
+  return el("div", { className: "folder-block", dataset: { folderBlock: folder.id } }, [row, children]);
 }
 
 // ---------------------------------------------------------------------------
@@ -218,13 +211,9 @@ document.addEventListener("click", async event => {
     const block = item.parentElement;
     block.querySelector(":scope > .children")?.classList.toggle("collapsed", folder.collapsed);
     item.querySelector(".icon")?.replaceWith(folderIcon(!folder.collapsed));
-    // The active tab of a collapsed folder is shown under it; that row has to
-    // be added or removed, so redraw once the animation has run.
-    const needsRedraw = descendantTabs(folder.id).some(t => t.active);
     lastSignature = signature(view);
     await ZF.updateFolder(folder.id, { collapsed: folder.collapsed });
     editGeneration++;
-    if (needsRedraw) setTimeout(() => render({ force: true }), 200);
     return;
   }
 

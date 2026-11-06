@@ -24,6 +24,8 @@ user_pref("sidebar.main.tools", "none");
 // macOS translucent window (Zen vibrancy); userChrome.css makes chrome transparent
 user_pref("widget.macos.sidebar-blend-mode.behind-window", true);
 user_pref("widget.macos.titlebar-blend-mode.behind-window", true);
+// Lets the Zen Folder Tools sidebar panel be translucent too (see userChrome.css)
+user_pref("browser.tabs.allow_transparent_browser", true);
 
 // Tab groups (= Zen folders) and split view
 user_pref("browser.tabs.groups.enabled", true);

@@ -204,21 +204,19 @@ button {
   padding: 2px 4px;
 }
 
-/* Folder open/close animation */
-.children {
-  display: grid;
-  grid-template-rows: 1fr;
-  transition: grid-template-rows var(--duration) ease-in-out, opacity var(--duration) ease-in-out;
+/* Folder open/close animation. Rows collapse one by one (height + fade)
+ * instead of the whole block, so a collapsed folder's active tab stays in
+ * place, like Zen. */
+.children .row {
+  transition:
+    height var(--duration) ease-in-out,
+    opacity var(--duration) ease-in-out;
 }
 
-.children > .inner {
-  overflow: hidden;
-  min-height: 0;
-}
-
-.children.collapsed {
-  grid-template-rows: 0fr;
+.children.collapsed .row:not(.tab.active) {
+  height: 0;
   opacity: 0;
+  pointer-events: none;
 }
 
 /* Separator + Clear */

@@ -66,7 +66,7 @@ Run `./install.sh` again to apply changes.
 
 ### Sidebar
 
-Opens in Firefox's sidebar panel; `userChrome.css` hides Firefox's own vertical tabs while it's open. Top to bottom:
+Opens in Firefox's sidebar panel; `userChrome.css` hides Firefox's own vertical tabs while it's open. It's translucent like the rest of the window: `user.js` turns on `browser.tabs.allow_transparent_browser`, and `userChrome.css` keeps web pages on a solid background so pages without one don't turn see-through. Top to bottom:
 
 - **Essentials:** Firefox's pinned tabs, as tiles.
 - **Kept tabs:** tabs and folders that stay around, with **real nested subfolders** (subfolders are listed before a folder's own tabs, like Zen). Folders can be empty. Each folder shows a `+N` count of every tab inside it, subfolders included.
@@ -106,7 +106,6 @@ Things Zen does that this can't reproduce:
 - **Without the extension, subfolders are a naming convention:** Firefox tab groups can't nest, so a subfolder is a separate group shown indented under the one above it. Dragging a subfolder or dropping a tab into one doesn't work reliably, and a folder's `+N` count leaves out its subfolders. The extension's sidebar has real subfolders instead.
 - **Folder tabs aren't pinned without the extension:** they're regular tabs in a group.
 - **Close-to-unload with Cmd+W:** the extension's sidebar unloads kept tabs on first close, but Cmd+W always closes; extensions can't take over that shortcut.
-- **The extension sidebar isn't translucent:** Firefox draws extension panels opaque, so it uses a solid dark (or light) background.
 - **Glance:** opens a separate window rather than an overlay inside the page.
 - **New tabs:** Firefox creates the tab immediately; Zen waits until you press Enter in the floating URL bar.
 
