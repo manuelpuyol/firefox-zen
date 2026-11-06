@@ -62,8 +62,9 @@ Run `./install.sh` again to apply changes.
 
 ## Extension: Zen Folder Tools
 
-`extension/` is an optional extension with two Zen features that CSS can't provide:
+`extension/` is an optional extension with Zen features that CSS can't provide:
 
+- **Empty folders stay:** Firefox deletes a tab group when its last tab leaves. The extension keeps one hidden placeholder tab in every folder (as Zen does internally), so emptied folders survive. Placeholders don't show in the sidebar or the `+N` count, and are closed if their folder is ungrouped. The first time it hides a tab, Firefox shows a one-off notice about an extension hiding tabs.
 - **Reset folder tabs:** each tab in a tab group remembers the URL it had when it joined the group.
   - Right-click the tab → **Reset to Original URL**, or press Option+Shift+R.
   - **Use Current Page as Original URL** changes the remembered URL.

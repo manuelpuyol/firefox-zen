@@ -1,20 +1,22 @@
 {
   "manifest_version": 3,
   "name": "Zen Folder Tools",
-  "version": "0.1.0",
-  "description": "Zen-style extras for Firefox: reset folder tabs to their original URL, and Glance (Alt+click a link to preview it in a floating window).",
+  "version": "0.2.0",
+  "description": "Zen-style extras for Firefox: keep empty folders, reset folder tabs to their original URL, and Glance (Alt+click a link to preview it in a floating window).",
   "icons": {
     "48": "icons/icon.svg",
     "96": "icons/icon.svg"
   },
   "permissions": [
     "tabs",
+    "tabHide",
     "sessions",
     "menus",
     "storage"
   ],
   "background": {
     "scripts": [
+      "folders.js",
       "background.js"
     ]
   },

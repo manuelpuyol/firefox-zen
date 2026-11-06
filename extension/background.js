@@ -9,7 +9,7 @@ const NO_GROUP = -1;
 // ---------------------------------------------------------------------------
 
 function isRealUrl(url) {
-  return url && !url.startsWith("about:");
+  return url && !url.startsWith("about:") && !url.startsWith(browser.runtime.getURL(""));
 }
 
 async function syncOriginalUrl(tab) {

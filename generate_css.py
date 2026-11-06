@@ -18,13 +18,15 @@ MAX_DEPTH = 3
 MAX_TOP_LEVEL_GROUPS = 40
 
 TABS = '#tabbrowser-tabs[orient="vertical"]'
+# Extension-hidden tabs (folder placeholders) don't count.
+VISIBLE_TAB = ".tabbrowser-tab:not([hidden])"
 
 
 def counts():
     for n in range(1, MAX_TABS + 1):
         yield (
-            f"{TABS} tab-group:has(> .tabbrowser-tab:nth-child({n} of .tabbrowser-tab)"
-            f":nth-last-child(1 of .tabbrowser-tab)) > .tab-group-label-container::before "
+            f"{TABS} tab-group:has(> .tabbrowser-tab:nth-child({n} of {VISIBLE_TAB})"
+            f":nth-last-child(1 of {VISIBLE_TAB})) > .tab-group-label-container::before "
             f'{{ content: "+{n}"; }}'
         )
 
