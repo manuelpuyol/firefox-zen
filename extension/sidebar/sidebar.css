@@ -48,9 +48,13 @@ body.no-animations {
 }
 
 /* The Essentials reserve the same gutter, so their right edge lines up with
-   the rows below. */
+   the rows below. They never take more than half the sidebar: past that they
+   scroll on their own, so the list below always stays reachable. */
 .essentials {
-  overflow: hidden;
+  max-height: 50vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-color: var(--line) transparent;
   scrollbar-width: thin;
   scrollbar-gutter: stable;
 }
