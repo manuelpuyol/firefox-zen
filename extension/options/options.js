@@ -152,7 +152,8 @@ document.getElementById("export-backup").addEventListener("click", async () => {
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
   const n = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
-  document.getElementById("backup-result").textContent = `Exported ${n(data.folders.length, "folder")}, ${n(data.tabs.length, "kept tab")} and ${n(data.essentials.length, "Essential")}.`;
+  const skipped = data.skippedLongAddresses ? ` ${n(data.skippedLongAddresses, "tab")} with an address over 8,192 characters weren't included.` : "";
+  document.getElementById("backup-result").textContent = `Exported ${n(data.folders.length, "folder")}, ${n(data.tabs.length, "kept tab")} and ${n(data.essentials.length, "Essential")}.${skipped}`;
 });
 document.getElementById("restore-backup").addEventListener("click", () => document.getElementById("restore-file").click());
 document.getElementById("restore-file").addEventListener("change", async event => {
@@ -161,7 +162,8 @@ document.getElementById("restore-file").addEventListener("change", async event =
   if (!file) return;
   try {
     const r = await ZF.restoreFolders(JSON.parse(await file.text()));
-    const skipped = r.skippedInContainers ? ` ${r.skippedInContainers} tabs from containers weren't reopened (that needs access to cookies); open them in their container and restore again to put them back.` : "";
+    let skipped = r.skippedInContainers ? ` ${r.skippedInContainers} tabs from containers weren't reopened (that needs access to cookies); open them in their container and restore again to put them back.` : "";
+    if (r.skippedLongAddresses) skipped += ` ${r.skippedLongAddresses} tabs with an address over 8,192 characters were skipped.`;
     result.textContent = `Restored: ${r.foldersCreated} folders created, ${r.foldersMatched} already there; ${r.tabsMoved} open tabs moved, ${r.tabsOpened} reopened unloaded; ${r.essentialsOpened} Essentials reopened.${skipped}`;
   } catch (error) {
     result.textContent = `Couldn't restore: ${error.message}`;

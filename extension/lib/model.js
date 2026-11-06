@@ -591,14 +591,20 @@ ZF.exportFolders = async () => {
   const known = new Set(folders.map(f => f.id));
   const tabs = [];
   const essentials = [];
+  let skippedLongAddresses = 0;
   const all = (await browser.tabs.query({})).filter(t => !t.incognito).sort((a, b) => a.windowId - b.windowId || a.index - b.index);
   for (const tab of all) {
     if (tab.pinned) {
-      if (ZF.isWebUrl(tab.url) && tab.url.length <= MAX_URL) essentials.push({ url: tab.url, title: tab.title ?? "", container: containerOf(tab) });
+      if (ZF.isWebUrl(tab.url) && tab.url.length > MAX_URL) skippedLongAddresses++;
+      else if (ZF.isWebUrl(tab.url)) essentials.push({ url: tab.url, title: tab.title ?? "", container: containerOf(tab) });
       continue;
     }
     const place = await ZF.getPlace(tab.id);
-    if (!place || tab.url.length > MAX_URL) continue;
+    if (!place) continue;
+    if (tab.url.length > MAX_URL) {
+      skippedLongAddresses++;
+      continue;
+    }
     const get = key => browser.sessions.getTabValue(tab.id, key).catch(() => undefined);
     const order = await get(ZF.ORDER_KEY);
     tabs.push({
@@ -617,6 +623,8 @@ ZF.exportFolders = async () => {
     folders: folders.map(f => ({ id: f.id, name: f.name, parentId: f.parentId ?? null, collapsed: Boolean(f.collapsed), order: f.order ?? 0 })),
     tabs,
     essentials,
+    // Informational only; restore ignores it.
+    skippedLongAddresses,
   };
 };
 
@@ -648,17 +656,19 @@ ZF.parseBackup = data => {
     }
   }
   // Addresses longer than MAX_URL are skipped, as on export.
-  const tabs = data.tabs.filter(t => !(typeof t?.url === "string" && t.url.length > MAX_URL)).map(t => {
+  const tooLong = e => typeof e?.url === "string" && e.url.length > MAX_URL;
+  const skippedLongAddresses = data.tabs.filter(tooLong).length + (data.essentials ?? []).filter(tooLong).length;
+  const tabs = data.tabs.filter(t => !tooLong(t)).map(t => {
     if (!str(t?.url, MAX_URL) || !(t.place === ZF.ROOT || byId.has(t.place))) fail("bad tab");
     if (t.originalUrl !== null && t.originalUrl !== undefined && typeof t.originalUrl !== "string") fail("bad tab address");
     const originalUrl = typeof t.originalUrl === "string" && t.originalUrl.length <= MAX_URL ? t.originalUrl : null;
     return { place: t.place, order: num(t.order) ? t.order : null, url: t.url, originalUrl, container: containerField(t.container), title: str(t.title, 2000) ? t.title : "" };
   });
-  const essentials = (data.essentials ?? []).filter(e => !(typeof e?.url === "string" && e.url.length > MAX_URL)).map(e => {
+  const essentials = (data.essentials ?? []).filter(e => !tooLong(e)).map(e => {
     if (!str(e?.url, MAX_URL)) fail("bad Essential");
     return { url: e.url, title: str(e.title, 2000) ? e.title : "", container: containerField(e.container) };
   });
-  return { folders, tabs, essentials };
+  return { folders, tabs, essentials, skippedLongAddresses };
 };
 
 // Merges a backup in; nothing is removed. Folders with the same name and
@@ -667,7 +677,7 @@ ZF.parseBackup = data => {
 // reopened unloaded. Missing Essentials are reopened as pinned tabs.
 ZF.restoreFolders = async raw => {
   const data = ZF.parseBackup(raw);
-  const report = { foldersCreated: 0, foldersMatched: 0, tabsMoved: 0, tabsOpened: 0, essentialsOpened: 0, skippedInContainers: 0 };
+  const report = { foldersCreated: 0, foldersMatched: 0, tabsMoved: 0, tabsOpened: 0, essentialsOpened: 0, skippedInContainers: 0, skippedLongAddresses: data.skippedLongAddresses };
 
   const idMap = new Map();
   await ZF.mutateFolders(folders => {
@@ -693,7 +703,9 @@ ZF.restoreFolders = async raw => {
 
   // Open tabs that entries can be matched to, by container and address. Each
   // open tab is matched at most once, so duplicates round-trip.
-  const open = (await browser.tabs.query({})).filter(t => !t.incognito);
+  // Only tabs in normal windows: not a Glance or other popup.
+  const normal = new Set((await browser.windows.getAll({ windowTypes: ["normal"] })).map(w => w.id));
+  const open = (await browser.tabs.query({})).filter(t => !t.incognito && normal.has(t.windowId));
   const keyOf = (container, url) => `${container}\n${url}`;
   const pool = new Map();
   const pinnedPool = new Map();
