@@ -90,6 +90,7 @@ ZF.getPlace = async tabId => (await browser.sessions.getTabValue(tabId, ZF.FOLDE
 ZF.setPlace = async (tab, place) => {
   if (place === null) {
     await browser.sessions.removeTabValue(tab.id, ZF.FOLDER_KEY);
+    await browser.sessions.removeTabValue(tab.id, ZF.ORIGINAL_URL_KEY);
     return;
   }
   await browser.sessions.setTabValue(tab.id, ZF.FOLDER_KEY, place);
@@ -272,7 +273,8 @@ ZF.normalizeAllWindows = async () => {
 // `avoid`: other tabs being closed in the same batch; never switch to them.
 ZF.closeOrUnload = async (tabId, view, { unloadFirst = true, avoid = [] } = {}) => {
   const tab = await browser.tabs.get(tabId);
-  if (!unloadFirst) return tab.pinned ? browser.tabs.update(tabId, { pinned: false }).then(() => browser.tabs.remove(tabId)) : browser.tabs.remove(tabId);
+  // Essentials are only ever unloaded from the sidebar, whatever the setting.
+  if (!unloadFirst && !tab.pinned) return browser.tabs.remove(tabId);
   const kept = tab.pinned || Boolean(await ZF.getPlace(tabId));
   if (!kept) return browser.tabs.remove(tabId);
   if (tab.discarded) {
@@ -294,15 +296,18 @@ ZF.closeOrUnload = async (tabId, view, { unloadFirst = true, avoid = [] } = {}) 
 ZF.displayOrder = view => [...view.essentials.map(t => t.id), ...ZF.segments(view).flatMap(s => s.ids)];
 
 // Close every regular tab (Zen's "Clear").
-ZF.clearRegular = async view => {
+ZF.clearRegular = async windowId => {
+  // Work out what's regular now, not from what a sidebar last drew.
+  const view = await ZF.buildView(windowId);
   const ids = view.regular.map(t => t.id);
-  if (!ids.length) return;
+  if (!ids.length) return 0;
   if (ids.includes(view.activeId)) {
     const keep = ZF.displayOrder(view).filter(id => !ids.includes(id));
     if (keep.length) await browser.tabs.update(keep.at(-1), { active: true });
-    else await browser.tabs.create({ windowId: view.windowId });
+    else await browser.tabs.create({ windowId });
   }
   await browser.tabs.remove(ids);
+  return ids.length;
 };
 
 // Import folders exported from Zen (export_zen_folders.py): recreate the
@@ -374,6 +379,11 @@ ZF.migrateNativeGroups = async () => {
     return 0;
   }
   if (!groups.length) return 0;
+  // Folders are shared by all windows and kept on disk, so groups in private
+  // windows are left alone.
+  const privateWindows = new Set((await browser.windows.getAll()).filter(w => w.incognito).map(w => w.id));
+  groups = groups.filter(g => !privateWindows.has(g.windowId));
+  if (!groups.length) return 0;
   const tabs = (await browser.tabs.query({})).filter(t => t.groupId !== undefined && t.groupId !== -1);
   const byWindow = new Map();
   for (const group of groups) {
@@ -391,8 +401,8 @@ ZF.migrateNativeGroups = async () => {
       const depth = title.length - title.trimStart().length;
       while (stack.length > depth) stack.pop();
       const parentId = stack.at(-1) ?? null;
-      const folder = await ZF.createFolder(title.trim() || "Folder", parentId);
-      await ZF.updateFolder(folder.id, { collapsed: Boolean(group.collapsed) });
+      const folder = await ZF.local.createFolder(title.trim() || "Folder", parentId);
+      await ZF.local.updateFolder(folder.id, { collapsed: Boolean(group.collapsed) });
       stack.push(folder.id);
       for (const tab of groupTabs) await ZF.setPlace(tab, folder.id);
       if (groupTabs.length) await browser.tabs.ungroup(groupTabs.map(t => t.id));
@@ -402,3 +412,45 @@ ZF.migrateNativeGroups = async () => {
   await ZF.normalizeAllWindows();
   return migrated;
 };
+
+// ---------------------------------------------------------------------------
+// One writer. Every change to folders, tab placement or settings runs in the
+// background, one at a time, so pages can't overwrite each other's changes;
+// afterwards every sidebar is told to refresh. Other pages forward calls.
+// ---------------------------------------------------------------------------
+
+ZF.REMOTE_CALLS = [
+  "createFolder",
+  "updateFolder",
+  "moveFolder",
+  "removeFolder",
+  "moveTabs",
+  "clearRegular",
+  "importZenFolders",
+  "restoreFoldersIfMissing",
+  "migrateNativeGroups",
+  "updateSettings",
+  "resetSettings",
+];
+
+ZF.local = {};
+let callQueue = Promise.resolve();
+
+ZF.runQueued = (name, args) => {
+  const run = callQueue.then(() => ZF.local[name](...args));
+  callQueue = run.catch(() => {});
+  return run.finally(() => ZF.notifyChanged());
+};
+
+let notifyTimer = null;
+ZF.notifyChanged = () => {
+  if (!ZF.IS_BACKGROUND) return;
+  clearTimeout(notifyTimer);
+  notifyTimer = setTimeout(() => browser.runtime.sendMessage({ type: "zf-changed" }).catch(() => {}), 20);
+};
+
+for (const name of ZF.REMOTE_CALLS) {
+  ZF.local[name] = ZF[name];
+  ZF[name] = (...args) =>
+    ZF.IS_BACKGROUND ? ZF.runQueued(name, args) : browser.runtime.sendMessage({ type: "zf-call", name, args });
+}

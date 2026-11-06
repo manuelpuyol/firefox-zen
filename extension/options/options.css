@@ -119,6 +119,22 @@ main {
   line-height: 1.4;
 }
 
+.setting.column {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+textarea {
+  font: 12.5px ui-monospace, Menlo, monospace;
+  color: inherit;
+  background: var(--control);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
 /* Switch */
 .switch {
   appearance: none;

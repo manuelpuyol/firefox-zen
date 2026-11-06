@@ -31,8 +31,26 @@ async function save(input) {
   render();
 }
 
+// Sliders and text update the label immediately but save once you pause or
+// let go, rather than on every movement or keystroke.
+const pending = new Map();
+function saveSoon(input) {
+  clearTimeout(pending.get(input));
+  pending.set(input, setTimeout(() => save(input), 300));
+}
+
 for (const input of document.querySelectorAll("[data-setting]")) {
-  input.addEventListener(input.type === "range" ? "input" : "change", () => save(input));
+  if (input.type === "range" || input.tagName === "TEXTAREA") {
+    input.addEventListener("input", () => {
+      const output = document.querySelector(`[data-output="${input.dataset.setting}"]`);
+      if (output) output.textContent = `${input.value}${output.dataset.unit ?? ""}`;
+      saveSoon(input);
+    });
+  }
+  input.addEventListener("change", () => {
+    clearTimeout(pending.get(input));
+    save(input);
+  });
 }
 
 // Auto-unload status
@@ -42,10 +60,10 @@ function describeRun(summary) {
   const when = minutes < 1 ? "just now" : minutes === 1 ? "1 minute ago" : `${minutes} minutes ago`;
   const n = summary.unloaded;
   const kept = Object.entries(summary.skipped ?? {})
-    .filter(([reason]) => ["essential", "active", "audible"].includes(reason))
+    .filter(([reason]) => ["essential", "active", "audible", "sharing", "never-unload"].includes(reason))
     .map(([reason, count]) => {
       if (reason === "essential") return `${count} Essential${count === 1 ? "" : "s"}`;
-      return `${count} ${reason === "active" ? "current" : "playing audio"}`;
+      return `${count} ${{ active: "current", audible: "playing audio", sharing: "in a call", "never-unload": "on your never-unload list" }[reason]}`;
     });
   return [`Last run ${when}: unloaded ${n} tab${n === 1 ? "" : "s"}`, kept.length ? `Kept loaded: ${kept.join(", ")}.` : ""];
 }
@@ -113,7 +131,8 @@ browser.storage.onChanged.addListener(changes => {
   if (changes.lastAutoUnload) showLastRun(changes.lastAutoUnload.newValue);
   if (changes.settings) {
     settings = ZF.normalizeSettings(changes.settings.newValue);
-    render();
+    // Don't overwrite what's being typed.
+    if (document.activeElement?.tagName !== "TEXTAREA") render();
   }
 });
 

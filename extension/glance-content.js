@@ -1,6 +1,9 @@
 "use strict";
 
 let glanceEnabled = true;
+// Off until the background confirms this tab can use Glance (not in containers).
+let glanceAllowed = false;
+browser.runtime.sendMessage({ type: "glance-context" }).then(r => (glanceAllowed = Boolean(r?.allowed)), () => {});
 browser.storage.local.get("settings").then(({ settings }) => (glanceEnabled = settings?.glance?.enabled !== false));
 browser.storage.onChanged.addListener(changes => {
   if (changes.settings) glanceEnabled = changes.settings.newValue?.glance?.enabled !== false;
@@ -10,7 +13,8 @@ browser.storage.onChanged.addListener(changes => {
 document.addEventListener(
   "click",
   event => {
-    if (!glanceEnabled || !event.altKey || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return;
+    // Only real clicks: a page can dispatch synthetic Alt+clicks.
+    if (!event.isTrusted || !glanceEnabled || !glanceAllowed || !event.altKey || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return;
     const link = event.target instanceof Element && event.target.closest("a[href]");
     if (!link) return;
     const url = new URL(link.getAttribute("href"), document.baseURI);
@@ -24,7 +28,7 @@ document.addEventListener(
 
 // Escape closes Glance (only acts inside a Glance window), unless the page used it.
 window.addEventListener("keydown", event => {
-  if (event.key === "Escape" && !event.defaultPrevented && window.top === window) {
+  if (event.isTrusted && event.key === "Escape" && !event.defaultPrevented && window.top === window) {
     browser.runtime.sendMessage({ type: "glance-escape" });
   }
 });

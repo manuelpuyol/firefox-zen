@@ -356,7 +356,7 @@ document.addEventListener("click", async event => {
   const item = event.target.closest("[data-tab-id], [data-folder-id]");
   if (event.target.closest("#new-tab")) return browser.tabs.create({ windowId });
   if (event.target.closest("#settings")) return browser.runtime.openOptionsPage();
-  if (event.target.closest("#clear")) return ZF.clearRegular(view);
+  if (event.target.closest("#clear")) return ZF.clearRegular(windowId);
   if (!item || event.target.closest(".rename")) return;
 
   if (item.dataset.folderId) {
@@ -613,6 +613,11 @@ document.addEventListener("drop", async event => {
   browser.storage.onChanged.addListener(changes => {
     if (changes.settings) applySettings(ZF.normalizeSettings(changes.settings.newValue));
     if (changes.folders) scheduleRender();
+  });
+  // The background says so after any change to folders or tab placement,
+  // including ones that don't move a tab (e.g. keeping the first regular tab).
+  browser.runtime.onMessage.addListener(message => {
+    if (message?.type === "zf-changed") scheduleRender();
   });
   applySettings(await ZF.getSettings());
   await render({ force: true });

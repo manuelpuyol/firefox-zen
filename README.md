@@ -83,7 +83,13 @@ Behaviour:
 
 ### Auto-unload
 
-Every 5 minutes, tabs you haven't looked at for an hour are unloaded, the same rules as [Zen Stale Tabs](https://github.com/manuelpuyol/zen-stale-pinned-tabs). Essentials are always kept loaded (Firefox's own low-memory unloader is told to skip them too). The current tab, and tabs playing audio, still loading or in private windows, are skipped. Change the timings, turn it off, or unload idle tabs immediately from the settings page.
+Every 5 minutes, tabs you haven't looked at for an hour are unloaded, the same rules as [Zen Stale Tabs](https://github.com/manuelpuyol/zen-stale-pinned-tabs). Never unloaded:
+
+- Essentials (and Firefox's own low-memory unloader is told to skip them; turn off *Keep Essentials loaded* to allow it). Only protection this extension set is ever removed, so other extensions' protection is left alone.
+- The current tab, and tabs playing audio, using the camera, microphone or screen sharing, still loading, in private windows, or protected by another extension.
+- Addresses on your *Never unload* list (one per line, `*` matches anything).
+
+Change the timings, turn it off, or unload idle tabs immediately from the settings page.
 
 ### Settings
 
@@ -96,8 +102,16 @@ The gear button at the bottom of the sidebar (or `about:addons` → Zen Folder T
 
 - **Reset kept tabs:** each kept tab remembers the URL it had when it was kept. A ↺ button appears in the sidebar when it has navigated away; also in the tab menu (**Reset to Original URL**) and Option+Shift+R. **Use Current Page as Original URL** changes it.
 - **Glance:** Option+click a link in a page (not inside embedded frames) to open it in a centred floating window.
+  - Only real clicks count; a page can't open Glance windows by faking clicks. One Glance per window: Option+clicking again reuses it.
+  - In a private window it opens a private Glance. It's off in container tabs, because keeping a container's cookies would need the *cookies* permission (which would let the extension read every site's cookies); Option+click does what Firefox normally does there.
   - Escape, or clicking back on the main window, closes it.
-  - Option+Shift+G opens it as a regular tab next to the one you came from.
+  - Option+Shift+G moves it into the main window next to the tab you came from, keeping the page as it is.
+
+### How changes are made
+
+Every change to folders, tab placement and settings runs in the extension's background page, one at a time, so two windows (or the settings page) can't overwrite each other. Afterwards every sidebar refreshes, including for changes that don't move any tab. Clear works out which tabs are regular at the moment you click it.
+
+Tab groups in private windows aren't converted into folders, since folders are shared by all windows and saved on disk.
 
 ### Your folders are safe across reloads
 

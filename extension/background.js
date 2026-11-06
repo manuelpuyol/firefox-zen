@@ -1,6 +1,18 @@
 "use strict";
 
 const SIDEBAR_URL = browser.runtime.getURL("sidebar/sidebar.html");
+const EXTENSION_ORIGIN = browser.runtime.getURL("");
+
+// lib/model.js: changes run here, one at a time; pages forward them.
+ZF.IS_BACKGROUND = true;
+
+browser.runtime.onMessage.addListener((message, sender) => {
+  if (message?.type !== "zf-call") return;
+  // Only this extension's own pages, never content scripts or other extensions.
+  if (sender.id !== browser.runtime.id || !sender.url?.startsWith(EXTENSION_ORIGIN)) return;
+  if (!ZF.REMOTE_CALLS.includes(message.name)) return;
+  return ZF.runQueued(message.name, Array.isArray(message.args) ? message.args : []);
+});
 
 // ---------------------------------------------------------------------------
 // Folder tabs: each tab kept in the sidebar's pinned section remembers the
@@ -14,6 +26,7 @@ async function resetTab(tab) {
 
 async function markCurrentAsOriginal(tab) {
   if (ZF.isRealUrl(tab.url)) await browser.sessions.setTabValue(tab.id, ZF.ORIGINAL_URL_KEY, tab.url);
+  ZF.notifyChanged();
 }
 
 function createMenus() {
@@ -83,8 +96,9 @@ for (const event of ["onCreated", "onUpdated"]) {
 // Auto-unload (lib/unload.js)
 // ---------------------------------------------------------------------------
 
-browser.alarms.onAlarm.addListener(alarm => {
-  if (alarm.name === ZF.UNLOAD_ALARM) ZF.unloadStaleTabs();
+browser.alarms.onAlarm.addListener(async alarm => {
+  // Re-check: the alarm may fire just as auto-unload is being turned off.
+  if (alarm.name === ZF.UNLOAD_ALARM && (await ZF.getUnloadSettings()).enabled) ZF.unloadStaleTabs();
 });
 
 browser.tabs.onUpdated.addListener((_id, _change, tab) => ZF.keepEssentialLoaded(tab).catch(() => {}), {
@@ -92,7 +106,10 @@ browser.tabs.onUpdated.addListener((_id, _change, tab) => ZF.keepEssentialLoaded
 });
 
 browser.storage.onChanged.addListener(changes => {
-  if (changes.settings || changes.autoUnload) ZF.configureAutoUnload();
+  // Only auto-unload settings matter here; ignore e.g. tile-size changes.
+  const before = JSON.stringify(changes.settings?.oldValue?.autoUnload ?? null);
+  const after = JSON.stringify(changes.settings?.newValue?.autoUnload ?? null);
+  if (changes.settings && before !== after) ZF.configureAutoUnload();
 });
 
 browser.runtime.onMessage.addListener(message => {
@@ -103,8 +120,8 @@ function setUp() {
   ZF.configureAutoUnload().catch(() => {});
   createMenus();
   ZF.closeOldPlaceholders().catch(() => {});
-  // Restore before migrating, so native groups don't race the restore.
-  migrating = migrating.then(() => ZF.restoreFoldersIfMissing()).catch(() => {});
+  // Restore before migrating (both run in the background's change queue).
+  ZF.restoreFoldersIfMissing().catch(() => {});
   migrateSoon();
 }
 
@@ -125,7 +142,27 @@ async function setGlances(glances) {
   await browser.storage.session.set({ glances });
 }
 
+function isWebUrl(url) {
+  try {
+    return ["http:", "https:"].includes(new URL(url).protocol);
+  } catch {
+    return false;
+  }
+}
+
 async function openGlance(url, sourceTab) {
+  const glances = await getGlances();
+  // One Glance per window: reuse it rather than stacking more.
+  const existing = Object.entries(glances).find(([, g]) => g.parentWindowId === sourceTab.windowId);
+  if (existing) {
+    const windowId = Number(existing[0]);
+    const [tab] = await browser.tabs.query({ windowId, active: true });
+    if (tab) {
+      await browser.tabs.update(tab.id, { url });
+      await browser.windows.update(windowId, { focused: true });
+      return;
+    }
+  }
   const parent = await browser.windows.get(sourceTab.windowId);
   const { size } = (await ZF.getSettings()).glance;
   const width = Math.round((parent.width * size) / 100);
@@ -133,12 +170,14 @@ async function openGlance(url, sourceTab) {
   const glance = await browser.windows.create({
     url,
     type: "popup",
+    // A private source opens a private Glance. (Container tabs never get
+    // here: opening a window in a container needs the "cookies" permission.)
+    incognito: sourceTab.incognito,
     width,
     height,
     left: parent.left + Math.round((parent.width - width) / 2),
     top: parent.top + Math.round((parent.height - height) / 2),
   });
-  const glances = await getGlances();
   glances[glance.id] = { parentWindowId: parent.id, openerTabId: sourceTab.id };
   await setGlances(glances);
 }
@@ -151,42 +190,57 @@ async function closeGlance(windowId) {
   await browser.windows.remove(windowId).catch(() => {});
 }
 
+// Move the Glance's tab into the main window, keeping the page as it is
+// (history, scroll, form contents); the popup closes once it's empty.
 async function expandGlance(windowId) {
-  const glance = (await getGlances())[windowId];
+  const glances = await getGlances();
+  const glance = glances[windowId];
   if (!glance) return;
   const [tab] = await browser.tabs.query({ windowId, active: true });
+  if (!tab) return;
   const opener = await browser.tabs.get(glance.openerTabId).catch(() => null);
-  await browser.tabs.create({
-    url: tab.url,
-    windowId: glance.parentWindowId,
-    index: opener ? opener.index + 1 : undefined,
-    active: true,
-  });
+  delete glances[windowId];
+  await setGlances(glances);
+  await browser.tabs.move(tab.id, { windowId: glance.parentWindowId, index: opener ? opener.index + 1 : -1 });
+  await browser.tabs.update(tab.id, { active: true });
   await browser.windows.update(glance.parentWindowId, { focused: true });
-  await closeGlance(windowId);
 }
 
+const lastGlanceRequest = new Map();
+
 // Only Glance messages are answered here; returning nothing for others lets
-// other listeners (e.g. "unload now") reply.
+// other listeners reply.
+// Glance can't keep a container's cookies without the "cookies" permission
+// (which would let it read every site's cookies), so it's off in container
+// tabs and Option+click behaves normally there.
+function glanceAllowedIn(tab) {
+  return !tab.cookieStoreId?.startsWith("firefox-container-");
+}
+
 async function handleGlanceMessage(message, sender) {
-  if (!sender.tab) return;
+  if (message.type === "glance-context") return { allowed: glanceAllowedIn(sender.tab) };
   if (message.type === "glance-open") {
+    if (!glanceAllowedIn(sender.tab) || !(await ZF.getSettings()).glance.enabled || !isWebUrl(message.url)) return;
+    // At most one Glance request per tab every half second.
+    const now = Date.now();
+    if (now - (lastGlanceRequest.get(sender.tab.id) ?? 0) < 500) return;
+    lastGlanceRequest.set(sender.tab.id, now);
     const glances = await getGlances();
     // Alt+click inside a Glance navigates that Glance instead of stacking another.
-    if (glances[sender.tab.windowId]) {
-      await browser.tabs.update(sender.tab.id, { url: message.url });
-    } else {
-      await openGlance(message.url, sender.tab);
-    }
+    if (glances[sender.tab.windowId]) await browser.tabs.update(sender.tab.id, { url: message.url });
+    else await openGlance(message.url, sender.tab);
   }
   if (message.type === "glance-escape") await closeGlance(sender.tab.windowId);
 }
 
 browser.runtime.onMessage.addListener((message, sender) => {
-  if (sender.tab && (message?.type === "glance-open" || message?.type === "glance-escape")) {
+  // Only from the Glance content script in a page's top frame.
+  if (sender.tab && sender.frameId === 0 && ["glance-open", "glance-escape", "glance-context"].includes(message?.type)) {
     return handleGlanceMessage(message, sender);
   }
 });
+
+browser.tabs.onRemoved.addListener(tabId => lastGlanceRequest.delete(tabId));
 
 browser.windows.onFocusChanged.addListener(async focusedId => {
   const glances = await getGlances();

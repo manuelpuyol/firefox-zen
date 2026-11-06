@@ -6,7 +6,7 @@
 
   ZF.SETTINGS_DEFAULTS = Object.freeze({
     sidebar: { compact: false, tileSize: 64, showCounts: true, showClear: true, unloadOnClose: true, animations: true },
-    autoUnload: { enabled: true, staleMinutes: 60, scanIntervalMinutes: 5 },
+    autoUnload: { enabled: true, staleMinutes: 60, scanIntervalMinutes: 5, keepEssentialsLoaded: true, neverUnload: "" },
     glance: { enabled: true, size: 80 },
   });
 
@@ -35,6 +35,8 @@
         enabled: bool(au.enabled, d.autoUnload.enabled),
         staleMinutes: clamp(au.staleMinutes, 1, 43_200, d.autoUnload.staleMinutes),
         scanIntervalMinutes: clamp(au.scanIntervalMinutes, 1, 1_440, d.autoUnload.scanIntervalMinutes),
+        keepEssentialsLoaded: bool(au.keepEssentialsLoaded, d.autoUnload.keepEssentialsLoaded),
+        neverUnload: typeof au.neverUnload === "string" ? au.neverUnload.slice(0, 10_000) : d.autoUnload.neverUnload,
       },
       glance: {
         enabled: bool(gl.enabled, d.glance.enabled),

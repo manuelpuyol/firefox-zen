@@ -42,7 +42,7 @@
           <input type="checkbox" class="switch" data-setting="sidebar.showClear">
         </div>
         <div class="setting">
-          <div class="text"><span class="label">Unload before closing</span><span class="hint">Closing a loaded Essential or kept tab from the sidebar unloads it first; closing it again removes it.</span></div>
+          <div class="text"><span class="label">Unload before closing</span><span class="hint">Closing a loaded kept tab from the sidebar unloads it first; closing it again removes it. Essentials are only ever unloaded from the sidebar.</span></div>
           <input type="checkbox" class="switch" data-setting="sidebar.unloadOnClose">
         </div>
         <div class="setting">
@@ -78,6 +78,14 @@
             <option value="15">15 minutes</option>
             <option value="30">30 minutes</option>
           </select>
+        </div>
+        <div class="setting" data-depends="autoUnload.enabled">
+          <div class="text"><span class="label">Keep Essentials loaded</span><span class="hint">Essentials are never unloaded, by this extension or by Firefox when memory is low.</span></div>
+          <input type="checkbox" class="switch" data-setting="autoUnload.keepEssentialsLoaded">
+        </div>
+        <div class="setting column" data-depends="autoUnload.enabled">
+          <div class="text"><span class="label">Never unload</span><span class="hint">One address per line; <code>*</code> matches anything. Calls and screen shares are always skipped.</span></div>
+          <textarea data-setting="autoUnload.neverUnload" rows="3" spellcheck="false" placeholder="*mail.google.com*&#10;https://app.slack.com/*"></textarea>
         </div>
         <div class="setting status">
           <div class="text"><span class="label" id="last-run">No unload run yet.</span><span class="hint" id="last-run-detail"></span></div>
