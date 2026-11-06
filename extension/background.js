@@ -103,6 +103,8 @@ function setUp() {
   ZF.configureAutoUnload().catch(() => {});
   createMenus();
   ZF.closeOldPlaceholders().catch(() => {});
+  // Restore before migrating, so native groups don't race the restore.
+  migrating = migrating.then(() => ZF.restoreFoldersIfMissing()).catch(() => {});
   migrateSoon();
 }
 

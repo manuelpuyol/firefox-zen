@@ -24,6 +24,13 @@ user_pref("sidebar.main.tools", "none");
 // macOS translucent window (Zen vibrancy); userChrome.css makes chrome transparent
 user_pref("widget.macos.sidebar-blend-mode.behind-window", true);
 user_pref("widget.macos.titlebar-blend-mode.behind-window", true);
+// Keep extension data when an extension is removed. Without this, reloading
+// a temporarily loaded Zen Folder Tools (about:debugging) or restarting
+// Firefox deletes its folders. Side effect: uninstalled extensions leave
+// their data behind.
+user_pref("extensions.webextensions.keepStorageOnUninstall", true);
+user_pref("extensions.webextensions.keepUuidOnUninstall", true);
+
 // Lets the Zen Folder Tools sidebar panel be translucent too (see userChrome.css)
 user_pref("browser.tabs.allow_transparent_browser", true);
 

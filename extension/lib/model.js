@@ -24,7 +24,52 @@ ZF.isRealUrl = url => Boolean(url) && !url.startsWith("about:") && !url.startsWi
 ZF.newId = () => `f${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 
 ZF.loadFolders = async () => (await browser.storage.local.get("folders")).folders ?? [];
-ZF.saveFolders = folders => browser.storage.local.set({ folders });
+
+// storage.local is deleted when the extension is removed (including a
+// temporary add-on being reloaded or Firefox restarting), so every save is
+// mirrored into the session store, which keeps it with the window.
+ZF.BACKUP_KEY = "zfFoldersBackup";
+ZF.saveFolders = async folders => {
+  await browser.storage.local.set({ folders });
+  const backup = { savedAt: Date.now(), folders };
+  for (const win of await browser.windows.getAll({ windowTypes: ["normal"] })) {
+    await browser.sessions.setWindowValue(win.id, ZF.BACKUP_KEY, backup).catch(() => {});
+  }
+};
+
+// If storage was wiped, restore folders from the newest session backup, then
+// give any tab that points at a folder that no longer exists a "Recovered"
+// folder of its own, so tabs stay grouped instead of being scattered.
+ZF.restoreFoldersIfMissing = async () => {
+  const report = { restoredFromBackup: 0, recoveredFolders: 0 };
+  if (!(await ZF.loadFolders()).length) {
+    let newest = null;
+    for (const win of await browser.windows.getAll({ windowTypes: ["normal"] })) {
+      const backup = await browser.sessions.getWindowValue(win.id, ZF.BACKUP_KEY).catch(() => null);
+      if (backup?.folders?.length && (!newest || backup.savedAt > newest.savedAt)) newest = backup;
+    }
+    if (newest) {
+      await ZF.mutateFolders(folders => folders.push(...newest.folders));
+      report.restoredFromBackup = newest.folders.length;
+    }
+  }
+  const known = new Set((await ZF.loadFolders()).map(f => f.id));
+  const orphans = new Set();
+  for (const tab of await browser.tabs.query({})) {
+    const place = await ZF.getPlace(tab.id);
+    if (place && place !== ZF.ROOT && !known.has(place)) orphans.add(place);
+  }
+  if (orphans.size) {
+    await ZF.mutateFolders(folders => {
+      let n = folders.filter(f => f.name.startsWith("Recovered folder")).length;
+      for (const id of orphans) {
+        folders.push({ id, name: `Recovered folder ${++n}`, parentId: null, collapsed: true, order: folders.length });
+      }
+    });
+    report.recoveredFolders = orphans.size;
+  }
+  return report;
+};
 
 // All folder changes go through here, one at a time, so two quick changes
 // (e.g. collapsing two folders) can't overwrite each other.
@@ -258,6 +303,53 @@ ZF.clearRegular = async view => {
     else await browser.tabs.create({ windowId: view.windowId });
   }
   await browser.tabs.remove(ids);
+};
+
+// Import folders exported from Zen (export_zen_folders.py): recreate the
+// folder tree and move every open tab whose address matches a tab that was
+// in a Zen folder into it. Existing folders are kept; "Recovered" folders
+// left empty by the import are removed.
+ZF.importZenFolders = async data => {
+  if (!Array.isArray(data?.folders) || !Array.isArray(data?.tabs)) throw new Error("Not a Zen folders export");
+  const idMap = new Map();
+  await ZF.mutateFolders(folders => {
+    const pending = [...data.folders];
+    // Parents first, so each child can point at its new parent id.
+    while (pending.length) {
+      const i = pending.findIndex(f => !f.parentId || idMap.has(f.parentId) || !data.folders.some(p => p.id === f.parentId));
+      const [zen] = pending.splice(i === -1 ? 0 : i, 1);
+      const parentId = zen.parentId ? idMap.get(zen.parentId) ?? null : null;
+      const folder = { id: ZF.newId(), name: String(zen.name || "Folder"), parentId, collapsed: Boolean(zen.collapsed), order: ZF.childrenOf(folders, parentId).length };
+      folders.push(folder);
+      idMap.set(zen.id, folder.id);
+    }
+  });
+
+  const strip = url => String(url).split("#")[0];
+  const byUrl = new Map();
+  for (const t of data.tabs) for (const url of t.urls ?? []) if (url && !byUrl.has(url)) byUrl.set(url, t.folderId);
+  const byStripped = new Map([...byUrl].map(([u, f]) => [strip(u), f]));
+
+  let placed = 0;
+  for (const tab of await browser.tabs.query({ pinned: false })) {
+    const zenFolder = byUrl.get(tab.url) ?? byStripped.get(strip(tab.url));
+    const folderId = zenFolder && idMap.get(zenFolder);
+    if (!folderId) continue;
+    await ZF.setPlace(tab, folderId);
+    placed++;
+  }
+
+  // Drop "Recovered" folders that no longer hold anything.
+  const used = new Set();
+  for (const tab of await browser.tabs.query({})) used.add(await ZF.getPlace(tab.id));
+  await ZF.mutateFolders(folders => {
+    for (let i = folders.length - 1; i >= 0; i--) {
+      const f = folders[i];
+      if (f.name.startsWith("Recovered folder") && !used.has(f.id) && !folders.some(c => c.parentId === f.id)) folders.splice(i, 1);
+    }
+  });
+  await ZF.normalizeAllWindows();
+  return { folders: idMap.size, tabs: placed };
 };
 
 // Version 0.2.0 kept empty tab groups alive with hidden placeholder tabs.

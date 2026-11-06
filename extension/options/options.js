@@ -89,6 +89,20 @@ document.getElementById("edit-shortcuts").addEventListener("click", () => {
   else browser.tabs.create({ url: "about:addons" });
 });
 
+document.getElementById("import-zen").addEventListener("click", () => document.getElementById("import-file").click());
+document.getElementById("import-file").addEventListener("change", async event => {
+  const file = event.target.files[0];
+  const result = document.getElementById("import-result");
+  if (!file) return;
+  try {
+    const { folders, tabs } = await ZF.importZenFolders(JSON.parse(await file.text()));
+    result.textContent = `Imported ${folders} folders and moved ${tabs} tabs into them.`;
+  } catch (error) {
+    result.textContent = `Couldn't import: ${error.message}`;
+  }
+  event.target.value = "";
+});
+
 document.getElementById("reset").addEventListener("click", async () => {
   await ZF.resetSettings();
   settings = await ZF.getSettings();

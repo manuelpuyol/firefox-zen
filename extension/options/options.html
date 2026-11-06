@@ -6,6 +6,7 @@
   <title>Zen Folder Tools</title>
   <link rel="stylesheet" href="options.css">
   <script src="../lib/settings.js"></script>
+  <script src="../lib/model.js"></script>
   <script src="options.js" defer></script>
 </head>
 <body>
@@ -105,6 +106,15 @@
         <div class="setting">
           <div class="text"><span class="hint">Cmd+W always closes the tab; Firefox doesn't let extensions change it.</span></div>
           <button type="button" id="edit-shortcuts">Change shortcuts…</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Folders</h2>
+        <div class="setting">
+          <div class="text"><span class="label">Import folders from Zen</span><span class="hint">Pick the file made by <code>export_zen_folders.py</code>. Recreates your Zen folders and moves open tabs with matching addresses into them.</span><span class="hint" id="import-result"></span></div>
+          <button type="button" id="import-zen">Import…</button>
+          <input type="file" id="import-file" accept=".json,application/json" hidden>
         </div>
       </section>
 

@@ -99,6 +99,16 @@ The gear button at the bottom of the sidebar (or `about:addons` → Zen Folder T
   - Escape, or clicking back on the main window, closes it.
   - Option+Shift+G opens it as a regular tab next to the one you came from.
 
+### Your folders are safe across reloads
+
+Firefox deletes an extension's data when it's removed, and a temporarily loaded extension is removed every time Firefox restarts or you load it again. So:
+
+- `user.js` sets `extensions.webextensions.keepStorageOnUninstall` and `keepUuidOnUninstall`, which keep the data (side effect: uninstalled extensions leave their data behind).
+- Every folder change is also saved with your windows in Firefox's session, and restored from there if the extension's own copy is gone.
+- Tabs that still point at a folder nobody knows about are grouped into *Recovered folder N* folders instead of being scattered.
+
+To rebuild folders from Zen, run `python3 export_zen_folders.py` (writes `~/Downloads/zen-folders.json`) and use **Import folders from Zen** on the settings page. Open tabs with matching addresses are moved into the recreated folders, and emptied *Recovered* folders are removed.
+
 ### Installing
 
 Release Firefox only installs signed extensions. To install:
