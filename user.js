@@ -10,9 +10,11 @@ user_pref("sidebar.revamp", true);
 user_pref("sidebar.verticalTabs", true);
 user_pref("sidebar.verticalTabs.dragToPinPromo.dismissed", true);
 user_pref("sidebar.position_start", true);
-// "always-show" = Zen with sidebar expanded.
-// Use "expand-on-hover" for Zen compact-sidebar behaviour.
-user_pref("sidebar.visibility", "always-show");
+// "hide-sidebar": the toolbar's sidebar button and Ctrl+Z show and hide the
+// whole sidebar, including the Zen Folder Tools panel. ("always-show" only
+// expands/collapses Firefox's own tab list, which that panel replaces, so
+// the panel couldn't be hidden.)
+user_pref("sidebar.visibility", "hide-sidebar");
 user_pref("sidebar.expandOnHover", true);
 user_pref("sidebar.animation.expand-on-hover.delay-duration-ms", 150);
 user_pref("sidebar.animation.expand-on-hover.duration-ms", 250);
