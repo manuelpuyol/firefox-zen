@@ -31,8 +31,10 @@ user_pref("widget.macos.titlebar-blend-mode.behind-window", true);
 user_pref("extensions.webextensions.keepStorageOnUninstall", true);
 user_pref("extensions.webextensions.keepUuidOnUninstall", true);
 
-// Lets the Zen Folder Tools sidebar panel be translucent too (see userChrome.css)
-user_pref("browser.tabs.allow_transparent_browser", true);
+// Off on purpose. It would let the Zen Folder Tools sidebar panel be
+// translucent, but Firefox applies it to every tab too: pages that don't set
+// a background (they rely on the default white) turn see-through.
+user_pref("browser.tabs.allow_transparent_browser", false);
 
 // Tab groups (= Zen folders) and split view
 user_pref("browser.tabs.groups.enabled", true);

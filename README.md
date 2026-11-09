@@ -66,7 +66,7 @@ Run `./install.sh` again to apply changes.
 
 ### Sidebar
 
-Opens in Firefox's sidebar panel; `userChrome.css` hides Firefox's own vertical tabs while it's open. It's translucent like the rest of the window: `user.js` turns on `browser.tabs.allow_transparent_browser`, and `userChrome.css` keeps web pages on a solid background so pages without one don't turn see-through. Top to bottom:
+Opens in Firefox's sidebar panel; `userChrome.css` hides Firefox's own vertical tabs while it's open. Its panel is solid rather than translucent: the only way to make it see-through (`browser.tabs.allow_transparent_browser`) also makes web pages without a background of their own see-through, so `user.js` keeps it off. Top to bottom:
 
 - **Essentials:** Firefox's pinned tabs, as tiles. They stay at the top while the list below scrolls; if they'd take more than half the sidebar, they scroll on their own.
 - **Collapse all / Expand all:** on the line under the Essentials; closes every folder when any is open, opens them all when every one is closed.
