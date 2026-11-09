@@ -377,6 +377,7 @@ button {
   gap: 4px;
 }
 
+#hide-sidebar,
 #settings {
   flex: none;
   display: grid;
@@ -387,6 +388,7 @@ button {
   color: var(--text-dim);
 }
 
+#hide-sidebar:hover,
 #settings:hover {
   background: var(--hover);
   color: var(--text);

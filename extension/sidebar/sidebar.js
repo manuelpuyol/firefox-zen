@@ -202,6 +202,14 @@ async function toggleAllFolders() {
   editGeneration++;
 }
 
+// The tooltip names the current shortcut (it can be changed in Firefox).
+async function showHideShortcut() {
+  const command = (await browser.commands.getAll()).find(c => c.name === "_execute_sidebar_action");
+  const keys = command?.shortcut
+    ?.replace(/Alt/g, "⌥").replace(/Shift/g, "⇧").replace(/Command/g, "⌘").replace(/MacCtrl|Ctrl/g, "⌃").replace(/\+/g, "");
+  $("hide-sidebar").title = keys ? `Hide sidebar (${keys})` : "Hide sidebar";
+}
+
 function isSelected(tab) {
   return tab.highlighted && selectedCount > 1;
 }
@@ -448,6 +456,8 @@ document.addEventListener("click", async event => {
   const item = event.target.closest("[data-tab-id], [data-folder-id]");
   if (event.target.closest("#new-tab")) return browser.tabs.create({ windowId });
   if (event.target.closest("#settings")) return browser.runtime.openOptionsPage();
+  // Must run straight from the click: closing needs a user action.
+  if (event.target.closest("#hide-sidebar")) return browser.sidebarAction.close();
   if (event.target.closest("#clear")) return onClear();
   if (event.target.closest("#collapse-all")) return toggleAllFolders();
   if (!item || event.target.closest(".rename")) return;
@@ -774,6 +784,8 @@ document.addEventListener("drop", async event => {
     }
   });
   applySettings(await ZF.getSettings());
+  showHideShortcut();
+  browser.commands.onChanged?.addListener(showHideShortcut);
   await render({ force: true });
   // Session values for restored tabs can arrive a little after startup.
   const reread = () => {
