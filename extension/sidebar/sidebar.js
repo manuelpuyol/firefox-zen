@@ -46,6 +46,7 @@ function applySettings(next) {
   root.setProperty("--radius", `${Math.round(ap.rowHeight * 0.35)}px`);
   root.setProperty("--indent", `${ap.indent}px`);
   root.setProperty("--essentials-max", `${ap.essentialsMaxHeight}vh`);
+  document.body.dataset.background = ap.background;
 }
 
 const $ = id => document.getElementById(id);

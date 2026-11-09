@@ -70,6 +70,49 @@ html, body {
   -moz-user-select: none;
 }
 
+/* Backgrounds (Appearance setting). Firefox can't make an extension sidebar
+   see-through without doing the same to every web page (see README), so
+   these soft gradients stand in for the window's frosted material. Each is
+   two faint colour glows over a base; light-dark() keeps light mode lighter. */
+body {
+  --base: light-dark(#f3f2f6, #1d1c22);
+  --glow-a: transparent;
+  --glow-b: transparent;
+  background:
+    radial-gradient(130% 55% at 0% 0%, var(--glow-a), transparent 70%),
+    radial-gradient(120% 50% at 100% 100%, var(--glow-b), transparent 70%),
+    var(--base);
+}
+
+body[data-background="aurora"] {
+  --glow-a: light-dark(rgb(150 120 255 / 0.22), rgb(130 100 255 / 0.28));
+  --glow-b: light-dark(rgb(80 170 255 / 0.2), rgb(60 140 255 / 0.22));
+}
+
+body[data-background="sunset"] {
+  --glow-a: light-dark(rgb(255 150 90 / 0.24), rgb(255 120 70 / 0.24));
+  --glow-b: light-dark(rgb(255 110 170 / 0.2), rgb(230 80 150 / 0.24));
+}
+
+body[data-background="ocean"] {
+  --glow-a: light-dark(rgb(60 200 210 / 0.22), rgb(40 180 200 / 0.22));
+  --glow-b: light-dark(rgb(70 120 255 / 0.2), rgb(50 90 230 / 0.26));
+}
+
+body[data-background="forest"] {
+  --glow-a: light-dark(rgb(110 200 120 / 0.22), rgb(80 180 110 / 0.22));
+  --glow-b: light-dark(rgb(40 170 160 / 0.2), rgb(30 140 130 / 0.24));
+}
+
+body[data-background="graphite"] {
+  --base: light-dark(#ececee, #232327);
+  --glow-a: light-dark(rgb(255 255 255 / 0.7), rgb(255 255 255 / 0.06));
+}
+
+body[data-background="plain"] {
+  background: transparent;
+}
+
 body {
   display: flex;
   flex-direction: column;

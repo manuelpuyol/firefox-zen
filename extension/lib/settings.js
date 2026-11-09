@@ -14,7 +14,7 @@
       animations: true,
       showScrollbar: true,
     },
-    appearance: { textSize: 13.75, rowHeight: 40, indent: 14, essentialsMaxHeight: 50 },
+    appearance: { textSize: 13.75, rowHeight: 40, indent: 14, essentialsMaxHeight: 50, background: "aurora" },
     folders: { convertTabGroups: true },
     autoUnload: { enabled: true, staleMinutes: 60, scanIntervalMinutes: 5, keepEssentialsLoaded: true, neverUnload: "" },
     glance: { enabled: true, size: 80 },
@@ -25,6 +25,8 @@
     return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.round(n))) : fallback;
   };
   const bool = (value, fallback) => (typeof value === "boolean" ? value : fallback);
+  const oneOf = (value, allowed, fallback) => (allowed.includes(value) ? value : fallback);
+  ZF.BACKGROUNDS = ["aurora", "sunset", "ocean", "forest", "graphite", "plain"];
   // Like clamp, but rounds to a step (e.g. 0.25 for text sizes).
   const stepped = (value, min, max, step, fallback) => {
     const n = Number(value);
@@ -54,6 +56,7 @@
         rowHeight: stepped(ap.rowHeight, 28, 56, 2, d.appearance.rowHeight),
         indent: stepped(ap.indent, 4, 32, 2, d.appearance.indent),
         essentialsMaxHeight: stepped(ap.essentialsMaxHeight, 20, 80, 5, d.appearance.essentialsMaxHeight),
+        background: oneOf(ap.background, ZF.BACKGROUNDS, d.appearance.background),
       },
       folders: {
         convertTabGroups: bool(s.folders?.convertTabGroups, d.folders.convertTabGroups),
