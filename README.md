@@ -12,7 +12,7 @@ Tested with Firefox 159 (the "Nova" design) on macOS, compared side by side with
   - Folder icon that opens and closes, `+N` count badge, whole row clickable.
   - Animated open and close.
   - Hovering a collapsed folder for 1 second shows its tabs (this delay applies to all Firefox tooltips; set with `ui.tooltip.delay_ms`).
-  - **Subfolders:** a group whose name starts with a space nests under the group above it (two spaces for two levels), and is shown above that folder's own tabs, like Zen.
+  - **Subfolders:** a group whose name starts with a space nests under the group above it (two spaces for two levels). It's shown after that folder's own tabs: moving it above them needed rules that crash Firefox 159 when a tooltip opens. (The extension's sidebar has real subfolders that can go anywhere.)
 - **Tab rows:** Zen's measurements for hover and selection: 8px inset, 14px radius, icons and titles aligned with folders.
 - **Unloaded tabs:** greyed out ("ghost" tabs).
 - **Separator:** a line between your folders and loose tabs.
