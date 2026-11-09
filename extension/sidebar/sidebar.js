@@ -159,6 +159,7 @@ async function render({ force = false } = {}) {
   $("regular").replaceChildren(...view.regular.map(tab => tabRow(tab, 0, "regular")));
   $("separator").classList.toggle("empty", view.regular.length === 0);
   updateFolderBar();
+  revealActive();
 
   if (renamingFolderId) {
     const input = document.querySelector(`[data-rename-for="${renamingFolderId}"]`);
@@ -286,6 +287,26 @@ function rowsFor(tabId) {
   return document.querySelectorAll(`[data-tab-id="${tabId}"]`);
 }
 
+// When the active tab changes (a new tab, Ctrl+Tab, …) and its row is out of
+// view, scroll to it. A new tab's row only exists after the next render, so
+// this also runs after every render; it only scrolls once per activation.
+let revealedId = null;
+function revealActive() {
+  const id = view?.activeId;
+  if (id == null || id === revealedId) return;
+  const row = rowsFor(id)[0];
+  if (!row) return;
+  revealedId = id;
+  // Scroll only the list it's in (not scrollIntoView, which would also scroll
+  // the settings page around its live preview).
+  const list = row.closest("#scroll, #essentials");
+  if (!list) return;
+  const box = list.getBoundingClientRect();
+  const r = row.getBoundingClientRect();
+  const delta = r.top < box.top ? r.top - box.top : r.bottom > box.bottom ? r.bottom - box.bottom : 0;
+  if (delta) list.scrollBy({ top: delta, behavior: settings.sidebar.animations ? "smooth" : "instant" });
+}
+
 function patchDone() {
   patched = true;
 }
@@ -302,6 +323,7 @@ function onTabActivated({ tabId, previousTabId, windowId: activatedWindow }) {
   for (const node of document.querySelectorAll(".active[data-tab-id]")) node.classList.remove("active");
   for (const node of rowsFor(tabId)) node.classList.add("active");
   patchDone();
+  revealActive();
 }
 
 function onTabPatched(tabId, change, tab) {

@@ -73,6 +73,7 @@ Opens in Firefox's sidebar panel; `userChrome.css` hides Firefox's own vertical 
 - **Kept tabs:** tabs and folders that stay around, with **real nested subfolders**. Subfolders are ordinary items: drag them anywhere among a folder's tabs. Folders can be empty. Each folder shows a `+N` count of every tab inside it, subfolders included.
 - **Separator with Clear:** closes all regular tabs (asks "Close N tabs?" first; click again to confirm).
 - **Regular tabs**, then **New Tab**.
+- When the current tab changes (a new tab, Ctrl+Tab) and it's out of view, the sidebar scrolls to it.
 
 Behaviour:
 
