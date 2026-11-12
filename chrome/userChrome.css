@@ -473,7 +473,9 @@
     display: none !important;
   }
 
-  #sidebar-header {
+  /* Firefox 160+ shows its own sidebar-panel-header (title + close) too. */
+  #sidebar-header,
+  #sidebar-panel-header {
     display: none !important;
   }
 
