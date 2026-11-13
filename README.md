@@ -69,10 +69,11 @@ Run `./install.sh` again to apply changes.
 Opens in Firefox's sidebar panel; `userChrome.css` hides Firefox's own vertical tabs while it's open. Hide it with the button at its bottom left or Option+Shift+S (change it in Firefox's shortcut settings); Option+Shift+S, the sidebar button at the left of the toolbar, or Ctrl+Z (Control, not Cmd) brings it back. Its panel is solid rather than translucent: the only way to make it see-through (`browser.tabs.allow_transparent_browser`) also makes web pages without a background of their own see-through, so `user.js` keeps it off. Top to bottom:
 
 - **Essentials:** Firefox's pinned tabs, as tiles. They stay at the top while the list below scrolls; if they'd take more than half the sidebar, they scroll on their own.
-- **Collapse all / Expand all:** on the line under the Essentials; closes every folder when any is open, opens them all when every one is closed.
+- **Space name and Collapse all / Expand all:** on the line under the Essentials. Collapse all closes every folder of the current space when any is open, and opens them all when every one is closed.
 - **Kept tabs:** tabs and folders that stay around, with **real nested subfolders**. Subfolders are ordinary items: drag them anywhere among a folder's tabs. Folders can be empty. Each folder shows a `+N` count of every tab inside it, subfolders included.
 - **Separator with Clear:** closes all regular tabs (asks "Close N tabs?" first; click again to confirm).
 - **Regular tabs**, then **New Tab**.
+- **Bottom bar:** hide button, the space switcher (one icon per space, **+** for a new one) and settings.
 - When the current tab changes (a new tab, Ctrl+Tab) and it's out of view, the sidebar scrolls to it.
 
 Behaviour:
@@ -80,8 +81,19 @@ Behaviour:
 - **Close to unload:** closing a loaded Essential or kept tab from the sidebar (× or middle-click) unloads it; closing it again while unloaded closes it (Essentials are never closed this way). Cmd+W can't be taken over by an extension, so it always closes.
 - **Multi-select:** Shift+click selects a range, Cmd+click adds or removes a tab, Escape clears. It uses Firefox's own tab selection, so Cmd+W and the tab context menu act on every selected tab; dragging a selected tab moves them all (in order), and × or middle-click unloads or closes them all. Right-click → **Copy N URLs** copies their addresses, one per line in tab order (**Copy URL** for a single tab).
 - **Drag and drop:** drop on the top or bottom edge of a row to place before or after it (tabs and folders alike), or on the middle of a folder to move into it; drag between Essentials, kept and regular tabs. Firefox's real tab order follows the sidebar, moving only the tabs that need to move.
-- **Menus:** right-clicking a tab shows Firefox's own tab menu plus *Keep in Sidebar*, *Move to Regular Tabs*, *Move to New Folder* and the reset items. Right-clicking a folder or empty space offers *New Folder*, *New Subfolder*, *Rename Folder* and *Remove Folder (Keep Tabs)*.
+- **Menus:** right-clicking a tab shows Firefox's own tab menu plus *Keep in Sidebar*, *Move to Regular Tabs*, *Move to New Folder*, *Move to Space* and the reset items. Right-clicking a folder or empty space offers *New Folder*, *New Subfolder*, *Rename Folder*, *Remove Folder (Keep Tabs)* and *Move Folder to Space*.
 - **Firefox tab groups become folders:** on install, existing tab groups (including the leading-space subfolder convention) are converted. A group created later with Firefox's own menu becomes a top-level folder once its name has stopped changing for a second (drag it into another folder to nest it). Turn this off in settings to keep Firefox's groups as they are.
+
+### Spaces
+
+Like Zen's spaces: each window shows one space at a time, with its own kept tabs, folders and regular tabs. Essentials are shared by every space.
+
+- **Switch** by clicking a space's icon at the bottom, swiping sideways with two fingers over the sidebar, or with Ctrl+Option+→ / Ctrl+Option+← (change them in Firefox's shortcut settings). Switching goes to the space's most recently used tab, and an empty space opens a new tab.
+- **New tabs** open in the current space. Switching to a tab from another space (e.g. *Switch to Tab* in the address bar) switches to its space.
+- **Right-click a space** (its icon or its name under the Essentials) to rename it (or double-click the name), pick its icon, give it its own background, reorder it, create a space, or delete it. Deleting a space never closes tabs: its tabs and folders move to the space before it.
+- **Move tabs and folders between spaces** with *Move to Space* in the tab menu (acts on every selected tab) and *Move Folder to Space* in the folder menu. A kept tab moved on its own goes to the other space's top level, since a folder belongs to one space.
+- Each window remembers its space across restarts, and a new window starts in the space of the window it was opened from. A tab dragged to another window joins that window's space.
+- Other spaces' tabs are hidden in Firefox (the *tabHide* permission), so Ctrl+Tab, Cmd+1–9, the tab list and tab search only see the current space. They keep running and are unloaded by auto-unload like any other tab. If the extension is removed or reloaded, Firefox shows every tab again; nothing is closed, and each tab goes back to its space once the extension is back. A temporarily loaded extension is the exception: Firefox restarts with other spaces' tabs still hidden and the extension gone, so load it again from `about:debugging` to get them back (an installed, signed extension doesn't have this problem).
 
 ### Auto-unload
 
@@ -123,7 +135,7 @@ Tab groups in private windows aren't converted into folders, since folders are s
 Firefox deletes an extension's data when it's removed, and a temporarily loaded extension is removed every time Firefox restarts or you load it again. So:
 
 - `user.js` sets `extensions.webextensions.keepStorageOnUninstall` and `keepUuidOnUninstall`, which keep the data (side effect: uninstalled extensions leave their data behind).
-- Every folder change is also saved with your windows in Firefox's session, and restored from there if the extension's own copy is gone.
+- Every folder and space change is also saved with your windows in Firefox's session, and restored from there if the extension's own copy is gone.
 - Tabs that still point at a folder nobody knows about are grouped into *Recovered folder N* folders instead of being scattered.
 
 To rebuild folders from Zen, run `python3 export_zen_folders.py` (writes `~/Downloads/zen-folders.json`) and use **Import folders from Zen** on the settings page. Open tabs with matching addresses are moved into the recreated folders, and emptied *Recovered* folders are removed.
@@ -142,7 +154,7 @@ To try it without signing, load `extension/manifest.json` from `about:debugging`
 
 Things Zen does that this can't reproduce:
 
-- **Spaces:** Firefox has no equivalent.
+- **Spaces without the extension:** Firefox has no equivalent; the extension adds them (see above). Swiping only works over the sidebar, not over the page, and backups don't record spaces yet (restored folders land in the first space).
 - **Translucency:** Zen uses a darker macOS material (HUD) that Firefox doesn't expose, so the sidebar is tinted with CSS instead.
 - **Without the extension, subfolders are a naming convention:** Firefox tab groups can't nest, so a subfolder is a separate group shown indented under the one above it. Dragging a subfolder or dropping a tab into one doesn't work reliably, and a folder's `+N` count leaves out its subfolders. The extension's sidebar has real subfolders instead.
 - **Folder tabs aren't pinned without the extension:** they're regular tabs in a group.

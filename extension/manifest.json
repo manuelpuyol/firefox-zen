@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Zen Folder Tools",
-  "version": "0.9.7",
+  "version": "0.10.0",
   "description": "A Zen-style tab sidebar for Firefox: Essentials, kept tabs in nested folders, and regular tabs. Closing a kept tab unloads it, idle tabs unload automatically, and Alt+click previews a link in a Glance.",
   "icons": {
     "48": "icons/icon.svg",
@@ -10,6 +10,7 @@
   "permissions": [
     "tabs",
     "tabGroups",
+    "tabHide",
     "sessions",
     "menus",
     "menus.overrideContext",
@@ -40,6 +41,20 @@
         "default": "Alt+Shift+G"
       },
       "description": "Open the current Glance as a regular tab"
+    },
+    "space-next": {
+      "suggested_key": {
+        "default": "Ctrl+Alt+Right",
+        "mac": "MacCtrl+Alt+Right"
+      },
+      "description": "Switch to the next space"
+    },
+    "space-previous": {
+      "suggested_key": {
+        "default": "Ctrl+Alt+Left",
+        "mac": "MacCtrl+Alt+Left"
+      },
+      "description": "Switch to the previous space"
     },
     "_execute_sidebar_action": {
       "suggested_key": {

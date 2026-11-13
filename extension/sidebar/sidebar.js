@@ -17,6 +17,9 @@ let windowId = null;
 let view = null;
 let dragging = null;
 let renamingFolderId = null;
+let renamingSpaceId = null;
+// The space the list was last drawn for, to slide in the next one.
+let drawnSpaceId = null;
 let renderPending = false;
 let renderTimer = null;
 let pointerDown = false;
@@ -46,7 +49,12 @@ function applySettings(next) {
   root.setProperty("--radius", `${Math.round(ap.rowHeight * 0.35)}px`);
   root.setProperty("--indent", `${ap.indent}px`);
   root.setProperty("--essentials-max", `${ap.essentialsMaxHeight}vh`);
-  document.body.dataset.background = ap.background;
+  applyBackground();
+}
+
+// A space can have its own background; otherwise the Appearance setting's.
+function applyBackground() {
+  document.body.dataset.background = view?.space?.background ?? settings.appearance.background;
 }
 
 const $ = id => document.getElementById(id);
@@ -94,7 +102,7 @@ function favicon(tab) {
 // under the pointer at mouseup is no longer the one from mousedown), so
 // redraws wait until the pointer is released, a drag ends or a rename ends.
 function busy() {
-  return pointerDown || dragging || renamingFolderId;
+  return pointerDown || dragging || renamingFolderId || renamingSpaceId;
 }
 
 function scheduleRender() {
@@ -115,7 +123,10 @@ function signature(v) {
     v.folders.map(f => [f.id, f.name, f.parentId, f.order, f.collapsed]),
     [...v.byPlace].map(([place, tabs]) => [place, tabs.map(tab)]),
     v.regular.map(tab),
+    v.spaceId,
+    v.spaces.map(s => [s.id, s.name, s.icon, s.background]),
     renamingFolderId,
+    renamingSpaceId,
   ]);
 }
 
@@ -160,7 +171,22 @@ async function render({ force = false } = {}) {
   $("regular").replaceChildren(...view.regular.map(tab => tabRow(tab, 0, "regular")));
   $("separator").classList.toggle("empty", view.regular.length === 0);
   updateFolderBar();
+  renderSpaces();
+  applyBackground();
+  slideInSpace();
   revealActive();
+
+  if (renamingSpaceId) {
+    const input = document.querySelector("#space-label .rename");
+    if (!input) {
+      renamingSpaceId = null;
+      scheduleRender();
+    } else if (document.activeElement !== input) {
+      input.focus();
+      if (input.zfSelection) input.setSelectionRange(...input.zfSelection);
+      else input.select();
+    }
+  }
 
   if (renamingFolderId) {
     const input = document.querySelector(`[data-rename-for="${renamingFolderId}"]`);
@@ -177,10 +203,8 @@ async function render({ force = false } = {}) {
 }
 
 // Collapse all when any folder is open, Expand all when every one is closed.
-// No line at the top when there's nothing above or below it.
 function updateFolderBar() {
   const bar = $("folder-bar");
-  bar.classList.toggle("hidden", !view.essentials.length && !view.folders.length);
   bar.classList.toggle("no-folders", !view.folders.length);
   $("collapse-all").textContent = view.folders.some(f => !f.collapsed) ? "Collapse all" : "Expand all";
 }
@@ -198,9 +222,105 @@ async function toggleAllFolders() {
   }
   patched = true;
   updateFolderBar();
-  await ZF.setAllCollapsed(collapsed);
+  // Only this space's folders.
+  await ZF.setAllCollapsed(collapsed, view.folders.map(f => f.id));
   editGeneration++;
 }
+
+// ---------------------------------------------------------------------------
+// Spaces: the switcher at the bottom and the name under the Essentials.
+// ---------------------------------------------------------------------------
+
+function renderSpaces() {
+  const icons = view.spaces.length > 1
+    ? view.spaces.map(sp =>
+        el("button", {
+          type: "button",
+          role: "tab",
+          className: `space${sp.id === view.spaceId ? " active" : ""}`,
+          title: sp.name,
+          textContent: sp.icon,
+          "aria-selected": String(sp.id === view.spaceId),
+          dataset: { spaceId: sp.id },
+        })
+      )
+    : [];
+  $("spaces").replaceChildren(...icons, el("button", { type: "button", id: "new-space", title: "New space", "aria-label": "New space", textContent: "+" }));
+  $("spaces").querySelector(".active")?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  const label = $("space-label");
+  label.dataset.spaceId = view.spaceId;
+  label.replaceChildren(
+    ...(renamingSpaceId === view.spaceId
+      ? [spaceRenameInput(view.space)]
+      : [el("span", { textContent: view.space.icon }), el("span", { className: "name", textContent: view.space.name })])
+  );
+}
+
+function slideInSpace() {
+  const previous = drawnSpaceId;
+  drawnSpaceId = view.spaceId;
+  if (!previous || previous === view.spaceId) return;
+  const ids = view.spaces.map(sp => sp.id);
+  const scroll = $("scroll");
+  scroll.classList.remove("space-in-next", "space-in-prev");
+  void scroll.offsetWidth;
+  scroll.classList.add(ids.indexOf(view.spaceId) > ids.indexOf(previous) ? "space-in-next" : "space-in-prev");
+}
+
+function startSpaceRename(spaceId) {
+  renamingSpaceId = spaceId;
+  renderPending = false;
+  clearTimeout(renderTimer);
+  render({ force: true });
+}
+
+function spaceRenameInput(space) {
+  const previous = document.querySelector("#space-label .rename");
+  const input = el("input", { className: "rename", value: previous?.value ?? space.name, maxLength: 50 });
+  if (previous) input.zfSelection = [previous.selectionStart, previous.selectionEnd];
+  const finish = async save => {
+    if (!input.isConnected || renamingSpaceId !== space.id) return;
+    renamingSpaceId = null;
+    const name = input.value.trim();
+    try {
+      if (save && name) await ZF.updateSpace(space.id, { name });
+    } catch (error) {
+      console.error(error);
+    } finally {
+      render({ force: true });
+    }
+  };
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter") finish(true);
+    if (e.key === "Escape") finish(false);
+  });
+  input.addEventListener("blur", () => finish(true));
+  return input;
+}
+
+async function newSpace() {
+  const space = await ZF.createSpace(windowId);
+  startSpaceRename(space.id);
+}
+
+// A horizontal trackpad swipe over the sidebar switches space, once per
+// swipe: the momentum that follows is ignored until the wheel goes quiet.
+const swipe = { sum: 0, done: false, timer: null };
+document.addEventListener(
+  "wheel",
+  event => {
+    if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) || event.target.closest?.("#spaces")) return;
+    event.preventDefault();
+    clearTimeout(swipe.timer);
+    swipe.timer = setTimeout(() => Object.assign(swipe, { sum: 0, done: false }), 250);
+    if (swipe.done || !view || view.spaces.length < 2) return;
+    swipe.sum += event.deltaMode === WheelEvent.DOM_DELTA_LINE ? event.deltaX * 16 : event.deltaX;
+    if (Math.abs(swipe.sum) < 80) return;
+    swipe.done = true;
+    ZF.switchSpaceBy(windowId, Math.sign(swipe.sum));
+  },
+  { passive: false }
+);
 
 // The tooltip names the current shortcut (it can be changed in Firefox).
 async function showHideShortcut() {
@@ -460,6 +580,10 @@ document.addEventListener("click", async event => {
   if (event.target.closest("#hide-sidebar")) return browser.sidebarAction.close();
   if (event.target.closest("#clear")) return onClear();
   if (event.target.closest("#collapse-all")) return toggleAllFolders();
+  if (event.target.closest("#new-space")) return newSpace();
+  const spaceButton = event.target.closest("#spaces [data-space-id]");
+  if (spaceButton) return ZF.switchSpace(windowId, spaceButton.dataset.spaceId);
+  if (event.target.closest("#space-label")) return;
   if (!item || event.target.closest(".rename")) return;
 
   if (item.dataset.folderId) {
@@ -512,6 +636,10 @@ function onClear() {
   button.classList.add("confirming");
   clearTimer = setTimeout(resetClear, 3000);
 }
+
+document.addEventListener("dblclick", event => {
+  if (event.target.closest("#space-label") && !renamingSpaceId) startSpaceRename(view.spaceId);
+});
 
 // Middle-click: unload (or close) like the close button.
 document.addEventListener("auxclick", event => {
@@ -582,6 +710,12 @@ function renameInput(folder) {
 let menuTarget = null;
 
 document.addEventListener("contextmenu", event => {
+  const spaceItem = event.target.closest("#spaces [data-space-id], #space-label");
+  if (spaceItem && view) {
+    menuTarget = { spaceId: spaceItem.dataset.spaceId ?? view.spaceId };
+    browser.menus.overrideContext({ showDefaults: false });
+    return;
+  }
   const tabItem = event.target.closest("[data-tab-id]");
   if (tabItem) {
     menuTarget = null;
@@ -594,19 +728,48 @@ document.addEventListener("contextmenu", event => {
 });
 
 browser.menus.onShown.addListener(info => {
-  if (!menuTarget || info.contexts.includes("tab") || !document.hasFocus()) return;
-  const onFolder = Boolean(menuTarget.folderId);
-  browser.menus.update("zf-new-folder", { visible: true });
+  if (!menuTarget || info.contexts.includes("tab") || !document.hasFocus() || !view) return;
+  const space = menuTarget.spaceId ? view.spaces.find(sp => sp.id === menuTarget.spaceId) : null;
+  const onFolder = !space && Boolean(menuTarget.folderId);
+  browser.menus.update("zf-new-folder", { visible: !space });
   for (const id of ["zf-new-subfolder", "zf-rename-folder", "zf-remove-folder"]) browser.menus.update(id, { visible: onFolder });
+  browser.menus.update("zf-folder-to-space", { visible: onFolder && view.spaces.length > 1 });
+  for (const sp of view.spaces) browser.menus.update(`zf-folder-to-space:${sp.id}`, { enabled: sp.id !== view.spaceId });
+  for (const id of ZF.SPACE_MENU_ITEMS) browser.menus.update(id, { visible: Boolean(space) });
+  if (space) {
+    const i = view.spaces.indexOf(space);
+    browser.menus.update("zf-space-left", { enabled: i > 0 });
+    browser.menus.update("zf-space-right", { enabled: i < view.spaces.length - 1 });
+    browser.menus.update("zf-space-delete", { enabled: view.spaces.length > 1 });
+    browser.menus.update(`zf-space-bg:${space.background ?? "default"}`, { checked: true });
+  }
   browser.menus.refresh();
 });
 
+async function onSpaceMenu(id, spaceId) {
+  if (id === "zf-space-rename") {
+    if (spaceId !== view.spaceId) await ZF.switchSpace(windowId, spaceId);
+    startSpaceRename(spaceId);
+  }
+  if (id.startsWith("zf-space-icon:")) await ZF.updateSpace(spaceId, { icon: id.slice("zf-space-icon:".length) });
+  if (id.startsWith("zf-space-bg:")) {
+    const background = id.slice("zf-space-bg:".length);
+    await ZF.updateSpace(spaceId, { background: background === "default" ? null : background });
+  }
+  if (id === "zf-space-left" || id === "zf-space-right") await ZF.moveSpace(spaceId, id === "zf-space-left" ? -1 : 1);
+  if (id === "zf-space-delete") await ZF.deleteSpace(spaceId);
+  if (id === "zf-space-new") await newSpace();
+}
+
 browser.menus.onClicked.addListener(async info => {
   if (!menuTarget || !document.hasFocus()) return;
-  const { folderId } = menuTarget;
+  const { folderId, spaceId } = menuTarget;
   menuTarget = null;
+  const id = String(info.menuItemId);
+  if (spaceId) return onSpaceMenu(id, spaceId);
+  if (id.startsWith("zf-folder-to-space:") && folderId) return ZF.moveFolderToSpace(folderId, id.slice("zf-folder-to-space:".length));
   if (info.menuItemId === "zf-new-folder") {
-    const folder = await ZF.createFolder("New Folder", null);
+    const folder = await ZF.createFolder("New Folder", null, view?.spaceId ?? null);
     startRename(folder.id);
   }
   if (info.menuItemId === "zf-new-subfolder" && folderId) {
@@ -796,4 +959,4 @@ document.addEventListener("drop", async event => {
   setTimeout(reread, 4000);
 })();
 
-globalThis.zfTest = { selectedIds, startRename, renaming: () => renamingFolderId, render: () => render({ force: true }), view: () => view, dropTarget, windowId: () => windowId };
+globalThis.zfTest = { selectedIds, startRename, startSpaceRename, renaming: () => renamingFolderId, render: () => render({ force: true }), view: () => view, dropTarget, windowId: () => windowId };

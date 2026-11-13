@@ -11,6 +11,7 @@
 <body>
   <div id="essentials" class="essentials"></div>
   <div id="folder-bar" class="separator">
+    <div id="space-label" title="Double-click to rename. Right-click for more."></div>
     <span class="line"></span>
     <button id="collapse-all" type="button">Collapse all</button>
   </div>
@@ -22,15 +23,18 @@
     <button id="clear" type="button" title="Close all regular tabs">↓ Clear</button>
   </div>
   <div id="regular" class="section"></div>
+  <div class="new-tab-row">
+    <button id="new-tab" type="button"><span class="plus">+</span> New Tab</button>
+  </div>
+  </div>
   <div class="footer">
     <button id="hide-sidebar" type="button" title="Hide sidebar" aria-label="Hide sidebar">
       <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2.5"/><path d="M6 2.75v10.5"/></svg>
     </button>
-    <button id="new-tab" type="button"><span class="plus">+</span> New Tab</button>
+    <div id="spaces" role="tablist" aria-label="Spaces"></div>
     <button id="settings" type="button" title="Zen Folder Tools settings" aria-label="Settings">
       <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4.5h7M12.5 4.5h1M2.5 11.5h1M6.5 11.5h7"/><circle cx="11" cy="4.5" r="1.5"/><circle cx="5" cy="11.5" r="1.5"/></svg>
     </button>
-  </div>
   </div>
 </body>
 </html>

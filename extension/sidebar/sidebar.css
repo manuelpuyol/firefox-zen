@@ -331,10 +331,6 @@ button {
   margin-block: 0 2px;
 }
 
-#folder-bar.hidden {
-  display: none;
-}
-
 #folder-bar.no-folders #collapse-all {
   visibility: hidden;
 }
@@ -370,11 +366,119 @@ button {
   font-size: calc(var(--text-size) * 0.875);
 }
 
+.new-tab-row {
+  display: flex;
+  margin-inline: var(--row-inset);
+}
+
+/* Fixed at the bottom: hide button, space switcher, settings. */
 .footer {
+  flex: none;
   display: flex;
   align-items: center;
-  margin-inline: var(--row-inset);
+  margin: 4px var(--row-inset) 0;
   gap: 4px;
+}
+
+#spaces {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+#spaces button {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  font-size: 15px;
+  line-height: 1;
+  opacity: 0.5;
+  filter: grayscale(0.7);
+  transition: opacity var(--duration), filter var(--duration);
+}
+
+#spaces button:hover {
+  opacity: 0.9;
+  filter: none;
+  background: var(--hover);
+}
+
+#spaces button.active {
+  opacity: 1;
+  filter: none;
+  background: var(--hover);
+}
+
+#spaces #new-space {
+  opacity: 1;
+  filter: none;
+  color: var(--text-dim);
+  font-size: 18px;
+}
+
+#spaces #new-space:hover {
+  color: var(--text);
+}
+
+/* The current space's name, at the start of the line under the Essentials. */
+#space-label {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 65%;
+  padding: 2px 6px;
+  margin-inline-start: -6px;
+  border-radius: 6px;
+  font-size: calc(var(--text-size) * 0.875);
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+#space-label:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+#space-label .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#space-label .rename {
+  width: 12em;
+}
+
+/* Switching spaces slides the list in from the side it's coming from. */
+@keyframes space-in-next {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
+@keyframes space-in-prev {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+}
+
+#scroll.space-in-next {
+  animation: space-in-next calc(var(--duration) * 1.2) ease-out;
+}
+
+#scroll.space-in-prev {
+  animation: space-in-prev calc(var(--duration) * 1.2) ease-out;
 }
 
 #hide-sidebar,

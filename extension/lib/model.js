@@ -12,6 +12,14 @@
 //   "zfFolder": a folder id, or ROOT for the pinned section's top level.
 // Tabs without it are regular. Firefox's real tab order is kept in the same
 // sequence as the sidebar, so session restore, Cmd+1..9 and tab cycling match.
+//
+// Spaces (like Zen's): each window shows one space at a time. Essentials are
+// shared; every other tab belongs to one space ("zfSpace" session value) and
+// top-level folders carry a spaceId (subfolders follow their top folder).
+// Untagged tabs belong to whichever space their window shows, so new tabs
+// land in the current space; they're tagged when the window switches away.
+// Tabs of other spaces are hidden in Firefox (tabs.hide), so Ctrl+Tab, the
+// tab list and tab search only see the current space.
 
 const ZF = (globalThis.ZF ??= {});
 
@@ -46,7 +54,7 @@ ZF.saveFolders = async folders => {
 // give any tab that points at a folder that no longer exists a "Recovered"
 // folder of its own, so tabs stay grouped instead of being scattered.
 ZF.restoreFoldersIfMissing = async () => {
-  const report = { restoredFromBackup: 0, recoveredFolders: 0 };
+  const report = { restoredFromBackup: 0, recoveredFolders: 0, restoredSpaces: await restoreSpacesIfMissing() };
   if (!(await ZF.loadFolders()).length) {
     let newest = null;
     for (const win of await browser.windows.getAll({ windowTypes: ["normal"] })) {
@@ -92,6 +100,68 @@ ZF.mutateFolders = fn => {
 };
 
 ZF.getPlace = async tabId => (await browser.sessions.getTabValue(tabId, ZF.FOLDER_KEY).catch(() => undefined)) ?? null;
+
+// ---------------------------------------------------------------------------
+// Spaces
+// ---------------------------------------------------------------------------
+
+ZF.SPACE_KEY = "zfSpace";
+ZF.WINDOW_SPACE_KEY = "zfActiveSpace";
+ZF.SPACES_BACKUP_KEY = "zfSpacesBackup";
+ZF.SPACE_ICONS = ["🏠", "💼", "🧪", "📚", "🎨", "🎮", "🎵", "✈️", "🛒", "💬", "📰", "⭐", "🔥", "🌱", "🌙", "☕", "🐙", "🚀"];
+// Sidebar-only menu items for a space (built in background.js).
+ZF.SPACE_MENU_ITEMS = ["zf-space-rename", "zf-space-icon", "zf-space-bg", "zf-space-left", "zf-space-right", "zf-space-delete", "zf-space-new"];
+const DEFAULT_SPACE = { id: "home", name: "Home", icon: "🏠", background: null };
+
+// Never empty: without saved spaces there's one, Home.
+ZF.loadSpaces = async () => {
+  const { spaces } = await browser.storage.local.get("spaces");
+  return Array.isArray(spaces) && spaces.length ? spaces : [{ ...DEFAULT_SPACE }];
+};
+
+// Mirrored into the session store like folders (see saveFolders).
+ZF.saveSpaces = async spaces => {
+  await browser.storage.local.set({ spaces });
+  const backup = { savedAt: Date.now(), spaces };
+  for (const win of await browser.windows.getAll({ windowTypes: ["normal"] })) {
+    await browser.sessions.setWindowValue(win.id, ZF.SPACES_BACKUP_KEY, backup).catch(() => {});
+  }
+};
+
+async function restoreSpacesIfMissing() {
+  if ((await browser.storage.local.get("spaces")).spaces?.length) return 0;
+  let newest = null;
+  for (const win of await browser.windows.getAll({ windowTypes: ["normal"] })) {
+    const backup = await browser.sessions.getWindowValue(win.id, ZF.SPACES_BACKUP_KEY).catch(() => null);
+    if (Array.isArray(backup?.spaces) && backup.spaces.length && (!newest || backup.savedAt > newest.savedAt)) newest = backup;
+  }
+  if (!newest) return 0;
+  await ZF.saveSpaces(newest.spaces);
+  return newest.spaces.length;
+}
+
+// Unknown ids (a deleted space, or spaces lost with storage) mean the first space.
+ZF.resolveSpace = (spaces, id) => (spaces.find(s => s.id === id) ?? spaces[0]).id;
+
+ZF.activeSpaceId = async (windowId, spaces) =>
+  ZF.resolveSpace(spaces, await browser.sessions.getWindowValue(windowId, ZF.WINDOW_SPACE_KEY).catch(() => undefined));
+
+// A folder's space is its top-level folder's.
+ZF.folderSpace = (folders, folder, spaces) => {
+  const seen = new Set();
+  let top = folder;
+  while (top.parentId && !seen.has(top.id)) {
+    seen.add(top.id);
+    const parent = folders.find(f => f.id === top.parentId);
+    if (!parent) break;
+    top = parent;
+  }
+  return ZF.resolveSpace(spaces, top.spaceId);
+};
+
+ZF.tabSpace = (tag, spaces, windowSpace) => (tag ? ZF.resolveSpace(spaces, tag) : windowSpace);
+
+const getSpaceTag = tabId => browser.sessions.getTabValue(tabId, ZF.SPACE_KEY).catch(() => undefined);
 
 // Every write of a tab's sidebar metadata goes through here, so the sidebars
 // can be told exactly which tabs changed (see notifyChanged).
@@ -143,27 +213,48 @@ async function readMeta(tab) {
   if (cached) return cached;
   const get = key => browser.sessions.getTabValue(tab.id, key).catch(() => undefined);
   const place = (await get(ZF.FOLDER_KEY)) ?? null;
+  const space = await get(ZF.SPACE_KEY);
   const meta = place
-    ? { place, original: await get(ZF.ORIGINAL_URL_KEY), order: await get(ZF.ORDER_KEY) }
-    : { place: null };
+    ? { place, space, original: await get(ZF.ORIGINAL_URL_KEY), order: await get(ZF.ORDER_KEY) }
+    : { place: null, space };
   cache?.set(tab.id, meta);
   return meta;
 }
 
 ZF.buildView = async windowId => {
-  const [allTabs, folders] = await Promise.all([browser.tabs.query({ windowId }), ZF.loadFolders()]);
+  const [allTabs, allFolders, spaces] = await Promise.all([browser.tabs.query({ windowId }), ZF.loadFolders(), ZF.loadSpaces()]);
+  const spaceId = await ZF.activeSpaceId(windowId, spaces);
+  // Only this space's folders; a tab whose folder is in another space shows
+  // at the top level.
+  const folders = allFolders.filter(f => ZF.folderSpace(allFolders, f, spaces) === spaceId);
   const tabs = allTabs.filter(t => !t.hidden).sort((a, b) => a.index - b.index);
   const known = new Set(folders.map(f => f.id));
   const metas = await Promise.all(tabs.map(readMeta));
 
-  const view = { windowId, folders, essentials: [], byPlace: new Map(), regular: [], activeId: null, tabsById: new Map() };
+  const view = {
+    windowId,
+    folders,
+    spaces,
+    spaceId,
+    space: spaces.find(s => s.id === spaceId),
+    essentials: [],
+    byPlace: new Map(),
+    regular: [],
+    activeId: null,
+    tabsById: new Map(),
+  };
   tabs.forEach((tab, i) => {
-    view.tabsById.set(tab.id, tab);
-    if (tab.active) view.activeId = tab.id;
     if (tab.pinned) {
+      view.tabsById.set(tab.id, tab);
+      if (tab.active) view.activeId = tab.id;
       view.essentials.push(tab);
       return;
     }
+    // Normally hidden already; this covers a tab Firefox couldn't hide (e.g.
+    // one sharing the camera) and the moment before hiding catches up.
+    if (ZF.tabSpace(metas[i].space, spaces, spaceId) !== spaceId) return;
+    view.tabsById.set(tab.id, tab);
+    if (tab.active) view.activeId = tab.id;
     let { place, original, order } = metas[i];
     if (place && place !== ZF.ROOT && !known.has(place)) place = ZF.ROOT;
     if (!place) {
@@ -262,7 +353,9 @@ function longestIncreasing(seq) {
 // tabs already in the right relative order stay put, others are moved next to
 // their new neighbour. A single drag moves one tab, not the whole window.
 ZF.applyOrder = async (windowId, desired) => {
-  const visible = (await browser.tabs.query({ windowId, pinned: false })).filter(t => !t.hidden).sort((a, b) => a.index - b.index);
+  // Only the tabs being ordered: other spaces' tabs keep their own order.
+  const wanted = new Set(desired);
+  const visible = (await browser.tabs.query({ windowId, pinned: false })).filter(t => wanted.has(t.id)).sort((a, b) => a.index - b.index);
   const current = visible.map(t => t.id);
   if (desired.length === current.length && desired.every((id, i) => id === current[i])) return;
   const pos = new Map(current.map((id, i) => [id, i]));
@@ -417,9 +510,13 @@ ZF.moveItems = async (windowId, moving, key, { anchor = null, after = false, atS
       await ZF.setMeta(item.id, ZF.ORDER_KEY, item.order);
     }
   }
+  const spaceId = parentId === null && movingFolders.length ? await ZF.activeSpaceId(windowId, await ZF.loadSpaces()) : null;
   await ZF.mutateFolders(all => {
     for (const f of all) {
-      if (movingFolders.includes(f.id)) f.parentId = parentId;
+      if (movingFolders.includes(f.id)) {
+        f.parentId = parentId;
+        if (spaceId) f.spaceId = spaceId;
+      }
       if (folderOrder.has(f.id)) f.order = folderOrder.get(f.id);
     }
   });
@@ -429,7 +526,9 @@ ZF.moveItems = async (windowId, moving, key, { anchor = null, after = false, atS
 
 ZF.moveTab = (tabId, place, position) => ZF.moveTabs([tabId], place, position);
 
-ZF.createFolder = async (name, parentId = null) => {
+// spaceId: for a top-level folder (subfolders follow their parent); without
+// one it goes in the first space.
+ZF.createFolder = async (name, parentId = null, spaceId = null) => {
   // Strictly after everything already in the parent, in every window, so it
   // never ties with a tab's position.
   const tabOrders = (await keptTabsEverywhere(parentId ?? ZF.ROOT)).map(t => t.order);
@@ -437,6 +536,7 @@ ZF.createFolder = async (name, parentId = null) => {
     const siblings = folders.filter(f => (f.parentId ?? null) === parentId).map(f => f.order ?? 0);
     const order = Math.floor(Math.max(2 * UNPOSITIONED, ...siblings, ...tabOrders)) + 1;
     const folder = { id: ZF.newId(), name, parentId, collapsed: false, order };
+    if (!parentId && spaceId) folder.spaceId = spaceId;
     folders.push(folder);
     return folder;
   });
@@ -448,20 +548,26 @@ ZF.updateFolder = (folderId, changes) =>
     if (folder) Object.assign(folder, changes);
   });
 
-// Open or close every folder at once.
-ZF.setAllCollapsed = collapsed =>
+// Open or close every folder at once (or just these, e.g. one space's).
+ZF.setAllCollapsed = (collapsed, folderIds = null) =>
   ZF.mutateFolders(folders => {
-    for (const folder of folders) folder.collapsed = collapsed;
+    for (const folder of folders) if (!folderIds || folderIds.includes(folder.id)) folder.collapsed = collapsed;
   });
 
 // Remove a folder but keep everything in it: its subfolders and tabs move up
 // to its parent.
 ZF.removeFolder = async folderId => {
+  const spaces = await ZF.loadSpaces();
   const folder = await ZF.mutateFolders(folders => {
     const index = folders.findIndex(f => f.id === folderId);
     if (index === -1) return null;
+    // Children that become top-level folders stay in the same space.
+    const spaceId = ZF.folderSpace(folders, folders[index], spaces);
     const [removed] = folders.splice(index, 1);
-    for (const child of folders.filter(f => f.parentId === folderId)) child.parentId = removed.parentId ?? null;
+    for (const child of folders.filter(f => f.parentId === folderId)) {
+      child.parentId = removed.parentId ?? null;
+      if (!child.parentId) child.spaceId = spaceId;
+    }
     return removed;
   });
   if (!folder) return;
@@ -827,7 +933,9 @@ ZF.migrateNativeGroups = async (onlyGroupIds = null) => {
     byWindow.get(group.windowId).push({ group, groupTabs, first });
   }
   let migrated = 0;
-  for (const entries of byWindow.values()) {
+  const spaces = await ZF.loadSpaces();
+  for (const [windowId, entries] of byWindow) {
+    const spaceId = await ZF.activeSpaceId(windowId, spaces);
     entries.sort((a, b) => a.first - b.first);
     const stack = [];
     for (const { group, groupTabs } of entries) {
@@ -835,7 +943,7 @@ ZF.migrateNativeGroups = async (onlyGroupIds = null) => {
       const depth = title.length - title.trimStart().length;
       while (stack.length > depth) stack.pop();
       const parentId = stack.at(-1) ?? null;
-      const folder = await ZF.local.createFolder(title.trim() || "Folder", parentId);
+      const folder = await ZF.local.createFolder(title.trim() || "Folder", parentId, spaceId);
       // Like Zen: subfolders above the folder's own (unpositioned) tabs.
       const siblings = (await ZF.loadFolders()).filter(f => (f.parentId ?? null) === parentId && f.id !== folder.id).length;
       await ZF.local.updateFolder(folder.id, { collapsed: Boolean(group.collapsed), order: siblings });
@@ -847,6 +955,248 @@ ZF.migrateNativeGroups = async (onlyGroupIds = null) => {
   }
   await ZF.normalizeAllWindows();
   return migrated;
+};
+
+// ---------------------------------------------------------------------------
+// Space changes. Like every other change they run in the background, one at
+// a time; inside them, other changes are called through ZF.local.
+// ---------------------------------------------------------------------------
+
+const cleanSpaceName = name => String(name ?? "").trim().slice(0, 50);
+
+ZF.mutateSpaces = async fn => {
+  const spaces = await ZF.loadSpaces();
+  const result = await fn(spaces);
+  await ZF.saveSpaces(spaces);
+  return result;
+};
+
+// Show the window's space in Firefox and hide every other space's tabs.
+// Firefox can't hide the active tab, so if it's leaving, the space's most
+// recently used tab is switched to first (or a new tab opens in an empty
+// space). focusLatest: also leave an Essential for the space's last tab.
+async function showSpace(windowId, { focusLatest = false } = {}) {
+  const spaces = await ZF.loadSpaces();
+  const spaceId = await ZF.activeSpaceId(windowId, spaces);
+  const show = [];
+  const hide = [];
+  const here = [];
+  let active = null;
+  for (const tab of await browser.tabs.query({ windowId })) {
+    if (tab.active) active = tab;
+    if (tab.pinned) continue;
+    if (ZF.tabSpace(await getSpaceTag(tab.id), spaces, spaceId) === spaceId) {
+      here.push(tab);
+      if (tab.hidden) show.push(tab.id);
+    } else if (!tab.hidden) hide.push(tab.id);
+  }
+  if (show.length) await browser.tabs.show(show);
+  const latest = [...here].sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0))[0];
+  const leaving = active && !active.pinned && !here.includes(active);
+  if (leaving || (focusLatest && active?.pinned && latest)) {
+    if (latest) await browser.tabs.update(latest.id, { active: true });
+    else await browser.tabs.create({ windowId });
+  }
+  if (hide.length) await browser.tabs.hide(hide).catch(error => console.error("Hide tabs:", error));
+}
+
+ZF.showAllSpaces = async () => {
+  for (const win of await browser.windows.getAll({ windowTypes: ["normal"] })) await showSpace(win.id);
+};
+
+ZF.switchSpace = async (windowId, spaceId) => {
+  const spaces = await ZF.loadSpaces();
+  const from = await ZF.activeSpaceId(windowId, spaces);
+  const to = ZF.resolveSpace(spaces, spaceId);
+  if (from !== to) {
+    // Untagged tabs follow the window's space, so pin them to the one they're in.
+    for (const tab of await browser.tabs.query({ windowId, pinned: false })) {
+      if (!(await getSpaceTag(tab.id))) await ZF.setMeta(tab.id, ZF.SPACE_KEY, from);
+    }
+    await browser.sessions.setWindowValue(windowId, ZF.WINDOW_SPACE_KEY, to);
+  }
+  await showSpace(windowId, { focusLatest: from !== to });
+};
+
+// Next (1) or previous (-1) space; stops at the ends.
+ZF.switchSpaceBy = async (windowId, delta) => {
+  const spaces = await ZF.loadSpaces();
+  const active = await ZF.activeSpaceId(windowId, spaces);
+  const next = spaces[spaces.findIndex(s => s.id === active) + Math.sign(delta)];
+  if (next) await ZF.local.switchSpace(windowId, next.id);
+};
+
+ZF.createSpace = async (windowId = null) => {
+  const space = await ZF.mutateSpaces(spaces => {
+    const used = new Set(spaces.map(s => s.icon));
+    const created = { id: `s${ZF.newId().slice(1)}`, name: `Space ${spaces.length + 1}`, icon: ZF.SPACE_ICONS.find(i => !used.has(i)) ?? "⭐", background: null };
+    spaces.push(created);
+    return created;
+  });
+  if (windowId !== null) await ZF.local.switchSpace(windowId, space.id);
+  return space;
+};
+
+ZF.updateSpace = (spaceId, changes) =>
+  ZF.mutateSpaces(spaces => {
+    const space = spaces.find(s => s.id === spaceId);
+    if (!space) return;
+    if ("name" in changes && cleanSpaceName(changes.name)) space.name = cleanSpaceName(changes.name);
+    if ("icon" in changes && ZF.SPACE_ICONS.includes(changes.icon)) space.icon = changes.icon;
+    if ("background" in changes) space.background = ZF.BACKGROUNDS.includes(changes.background) ? changes.background : null;
+  });
+
+// Folders, windows and tabs without a (known) space belong to the first
+// one. Before another space becomes first, give them that space for real.
+async function pinToFirstSpace(spaces) {
+  const first = spaces[0].id;
+  const known = new Set(spaces.map(s => s.id));
+  await ZF.mutateFolders(folders => {
+    for (const f of folders) if (!f.parentId && !known.has(f.spaceId)) f.spaceId = first;
+  });
+  for (const win of await browser.windows.getAll({ windowTypes: ["normal"] })) {
+    if (!known.has(await browser.sessions.getWindowValue(win.id, ZF.WINDOW_SPACE_KEY).catch(() => undefined))) {
+      await browser.sessions.setWindowValue(win.id, ZF.WINDOW_SPACE_KEY, first);
+    }
+  }
+  for (const tab of await browser.tabs.query({ pinned: false })) {
+    const tag = await getSpaceTag(tab.id);
+    if (tag && !known.has(tag)) await ZF.setMeta(tab.id, ZF.SPACE_KEY, first);
+  }
+}
+
+// Move a space left (-1) or right (1) in the switcher.
+ZF.moveSpace = async (spaceId, delta) => {
+  const spaces = await ZF.loadSpaces();
+  const i = spaces.findIndex(s => s.id === spaceId);
+  const j = i + Math.sign(delta);
+  if (i === -1 || j < 0 || j >= spaces.length) return;
+  if (i === 0 || j === 0) await pinToFirstSpace(spaces);
+  await ZF.mutateSpaces(all => {
+    [all[i], all[j]] = [all[j], all[i]];
+  });
+  await ZF.local.showAllSpaces();
+};
+
+// Nothing is closed: the space's tabs and folders move to the space before
+// it (or after it, for the first one), and windows showing it switch there.
+ZF.deleteSpace = async spaceId => {
+  const spaces = await ZF.loadSpaces();
+  const i = spaces.findIndex(s => s.id === spaceId);
+  if (i === -1 || spaces.length < 2) return;
+  const target = spaces[i === 0 ? 1 : i - 1].id;
+  const windows = await browser.windows.getAll({ windowTypes: ["normal"] });
+  for (const win of windows) {
+    const shown = await ZF.activeSpaceId(win.id, spaces);
+    for (const tab of await browser.tabs.query({ windowId: win.id, pinned: false })) {
+      if (ZF.tabSpace(await getSpaceTag(tab.id), spaces, shown) === spaceId) await ZF.setMeta(tab.id, ZF.SPACE_KEY, target);
+    }
+    if (shown === spaceId) await browser.sessions.setWindowValue(win.id, ZF.WINDOW_SPACE_KEY, target);
+  }
+  await ZF.mutateFolders(folders => {
+    const top = folders.filter(f => !f.parentId || !folders.some(p => p.id === f.parentId));
+    for (const f of top) if (ZF.folderSpace(folders, f, spaces) === spaceId) f.spaceId = target;
+  });
+  await ZF.mutateSpaces(all => all.splice(all.findIndex(s => s.id === spaceId), 1));
+  for (const win of windows) await showSpace(win.id);
+};
+
+// A folder belongs to one space, so a kept tab moving to another space
+// leaves its folder for that space's top level.
+ZF.moveTabsToSpace = async (tabIds, spaceId) => {
+  const spaces = await ZF.loadSpaces();
+  if (!spaces.some(s => s.id === spaceId)) return;
+  const folders = await ZF.loadFolders();
+  const windows = new Set();
+  for (const id of tabIds) {
+    const tab = await browser.tabs.get(id).catch(() => null);
+    if (!tab || tab.pinned) continue;
+    const place = await ZF.getPlace(id);
+    const folder = folders.find(f => f.id === place);
+    if (place && place !== ZF.ROOT && (!folder || ZF.folderSpace(folders, folder, spaces) !== spaceId)) {
+      await ZF.setMeta(id, ZF.FOLDER_KEY, ZF.ROOT);
+      await ZF.setMeta(id, ZF.ORDER_KEY, undefined);
+    }
+    await ZF.setMeta(id, ZF.SPACE_KEY, spaceId);
+    windows.add(tab.windowId);
+  }
+  for (const windowId of windows) await showSpace(windowId);
+};
+
+// The folder becomes a top-level folder of the other space, with its
+// subfolders and every tab in them (in every window).
+ZF.moveFolderToSpace = async (folderId, spaceId) => {
+  const spaces = await ZF.loadSpaces();
+  if (!spaces.some(s => s.id === spaceId)) return;
+  const tabOrders = (await keptTabsEverywhere(ZF.ROOT)).map(t => t.order);
+  const moved = await ZF.mutateFolders(folders => {
+    const folder = folders.find(f => f.id === folderId);
+    if (!folder) return null;
+    const siblings = folders.filter(f => !f.parentId && f.id !== folderId).map(f => f.order ?? 0);
+    folder.parentId = null;
+    folder.spaceId = spaceId;
+    folder.order = Math.floor(Math.max(2 * UNPOSITIONED, ...siblings, ...tabOrders)) + 1;
+    const ids = new Set([folderId]);
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (const f of folders) {
+        if (f.parentId && ids.has(f.parentId) && !ids.has(f.id)) {
+          ids.add(f.id);
+          grew = true;
+        }
+      }
+    }
+    return ids;
+  });
+  if (!moved) return;
+  const windows = new Set();
+  for (const tab of await browser.tabs.query({ pinned: false })) {
+    if (!moved.has(await ZF.getPlace(tab.id))) continue;
+    await ZF.setMeta(tab.id, ZF.SPACE_KEY, spaceId);
+    windows.add(tab.windowId);
+  }
+  for (const windowId of windows) await showSpace(windowId);
+  await ZF.normalizeAllWindows();
+};
+
+// A tab of another space became active (e.g. "Switch to Tab" from the
+// address bar): show its space, like Zen.
+ZF.followTab = async (windowId, tabId) => {
+  const tab = await browser.tabs.get(tabId).catch(() => null);
+  if (!tab?.active || tab.pinned || tab.windowId !== windowId) return;
+  const tag = await getSpaceTag(tabId);
+  if (!tag) return;
+  const spaces = await ZF.loadSpaces();
+  const to = ZF.resolveSpace(spaces, tag);
+  if (to !== (await ZF.activeSpaceId(windowId, spaces))) await ZF.local.switchSpace(windowId, to);
+};
+
+// A tab moved in from another window joins this window's space; if it was
+// in a folder of another space it goes to the top level.
+ZF.adoptTab = async (tabId, windowId) => {
+  const tab = await browser.tabs.get(tabId).catch(() => null);
+  if (!tab || tab.pinned) return;
+  const spaces = await ZF.loadSpaces();
+  const shown = await ZF.activeSpaceId(windowId, spaces);
+  const tag = await getSpaceTag(tabId);
+  if (tag && ZF.resolveSpace(spaces, tag) !== shown) await ZF.setMeta(tabId, ZF.SPACE_KEY, undefined);
+  const place = await ZF.getPlace(tabId);
+  if (place && place !== ZF.ROOT) {
+    const folders = await ZF.loadFolders();
+    const folder = folders.find(f => f.id === place);
+    if (!folder || ZF.folderSpace(folders, folder, spaces) !== shown) {
+      await ZF.setMeta(tabId, ZF.FOLDER_KEY, ZF.ROOT);
+      await ZF.setMeta(tabId, ZF.ORDER_KEY, undefined);
+    }
+  }
+  await showSpace(windowId);
+};
+
+// A new window starts in the space of the window it was opened from.
+ZF.initWindow = async (windowId, fromWindowId) => {
+  if (await browser.sessions.getWindowValue(windowId, ZF.WINDOW_SPACE_KEY).catch(() => undefined)) return;
+  const from = fromWindowId === null ? undefined : await browser.sessions.getWindowValue(fromWindowId, ZF.WINDOW_SPACE_KEY).catch(() => undefined);
+  if (from) await browser.sessions.setWindowValue(windowId, ZF.WINDOW_SPACE_KEY, from).catch(() => {});
 };
 
 // ---------------------------------------------------------------------------
@@ -869,7 +1219,18 @@ ZF.REMOTE_CALLS = [
   "migrateNativeGroups",
   "updateSettings",
   "resetSettings",
+  "createSpace",
+  "updateSpace",
+  "moveSpace",
+  "deleteSpace",
+  "switchSpace",
+  "switchSpaceBy",
+  "moveTabsToSpace",
+  "moveFolderToSpace",
 ];
+
+// Queued like the calls above, but only the background starts them.
+ZF.INTERNAL_CALLS = ["followTab", "adoptTab", "initWindow", "showAllSpaces"];
 
 ZF.local = {};
 let callQueue = Promise.resolve();
@@ -891,7 +1252,7 @@ ZF.notifyChanged = () => {
   }, 20);
 };
 
-for (const name of ZF.REMOTE_CALLS) {
+for (const name of [...ZF.REMOTE_CALLS, ...ZF.INTERNAL_CALLS]) {
   ZF.local[name] = ZF[name];
   ZF[name] = (...args) =>
     ZF.IS_BACKGROUND ? ZF.runQueued(name, args) : browser.runtime.sendMessage({ type: "zf-call", name, args });

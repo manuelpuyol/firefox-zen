@@ -29,7 +29,18 @@ async function markCurrentAsOriginal(tab) {
   ZF.notifyChanged();
 }
 
+const BACKGROUND_NAMES = { aurora: "Aurora", sunset: "Sunset", ocean: "Ocean", forest: "Forest", graphite: "Graphite", plain: "Plain" };
+
+// Rebuilt whenever spaces change (the "Move to Space" lists name them).
+let menusBuilt = Promise.resolve();
 function createMenus() {
+  menusBuilt = menusBuilt.then(buildMenus).catch(error => console.error("Menus:", error));
+  return menusBuilt;
+}
+
+async function buildMenus() {
+  const spaces = await ZF.loadSpaces();
+  const inSidebar = { contexts: ["all"], documentUrlPatterns: [SIDEBAR_URL] };
   const items = [
     // Tab menu (Firefox's tab context menu, also shown for tabs in the sidebar)
     { id: "zf-keep", title: "Keep in Sidebar", contexts: ["tab"] },
@@ -38,16 +49,33 @@ function createMenus() {
     { id: "reset-tab", title: "Reset to Original URL", contexts: ["tab"] },
     { id: "set-original", title: "Use Current Page as Original URL", contexts: ["tab"] },
     { id: "zf-copy-urls", title: "Copy URL", contexts: ["tab"] },
+    { id: "zf-tab-to-space", title: "Move to Space", contexts: ["tab"] },
+    ...spaces.map(sp => ({ id: `zf-tab-to-space:${sp.id}`, parentId: "zf-tab-to-space", title: `${sp.icon} ${sp.name}`, contexts: ["tab"] })),
     // Sidebar folder menu
     { id: "zf-new-folder", title: "New Folder", contexts: ["all"], documentUrlPatterns: [SIDEBAR_URL] },
     { id: "zf-new-subfolder", title: "New Subfolder", contexts: ["all"], documentUrlPatterns: [SIDEBAR_URL] },
     { id: "zf-rename-folder", title: "Rename Folder", contexts: ["all"], documentUrlPatterns: [SIDEBAR_URL] },
     { id: "zf-remove-folder", title: "Remove Folder (Keep Tabs)", contexts: ["all"], documentUrlPatterns: [SIDEBAR_URL] },
+    { id: "zf-folder-to-space", title: "Move Folder to Space", ...inSidebar },
+    ...spaces.map(sp => ({ id: `zf-folder-to-space:${sp.id}`, parentId: "zf-folder-to-space", title: `${sp.icon} ${sp.name}`, ...inSidebar })),
+    // Space menu (switcher icons and the space name in the sidebar)
+    { id: "zf-space-rename", title: "Rename Space", ...inSidebar },
+    { id: "zf-space-icon", title: "Icon", ...inSidebar },
+    ...ZF.SPACE_ICONS.map(icon => ({ id: `zf-space-icon:${icon}`, parentId: "zf-space-icon", title: icon, ...inSidebar })),
+    { id: "zf-space-bg", title: "Background", ...inSidebar },
+    { id: "zf-space-bg:default", parentId: "zf-space-bg", type: "radio", title: "Same as settings", ...inSidebar },
+    ...ZF.BACKGROUNDS.map(bg => ({ id: `zf-space-bg:${bg}`, parentId: "zf-space-bg", type: "radio", title: BACKGROUND_NAMES[bg] ?? bg, ...inSidebar })),
+    { id: "zf-space-left", title: "Move Left", ...inSidebar },
+    { id: "zf-space-right", title: "Move Right", ...inSidebar },
+    { id: "zf-space-delete", title: "Delete Space (Keep Tabs)", ...inSidebar },
+    { id: "zf-space-new", title: "New Space", ...inSidebar },
   ];
-  browser.menus.removeAll().then(() => {
-    for (const item of items) browser.menus.create(item, () => void browser.runtime.lastError);
-  });
+  await browser.menus.removeAll();
+  for (const item of items) browser.menus.create(item, () => void browser.runtime.lastError);
 }
+
+// Sidebar-only items, shown by the sidebar for what was right-clicked.
+const SIDEBAR_ITEMS = ["zf-new-folder", "zf-new-subfolder", "zf-rename-folder", "zf-remove-folder", "zf-folder-to-space", ...ZF.SPACE_MENU_ITEMS];
 
 // The URLs "Copy URL" will copy, worked out when the menu opens: the copy
 // itself has to happen straight away in the click handler.
@@ -66,9 +94,12 @@ browser.menus.onShown.addListener(async (info, tab) => {
   browser.menus.update("zf-folder-with-tab", { visible: !tab.pinned });
   browser.menus.update("reset-tab", { visible: kept, enabled: Boolean(original && original !== tab.url) });
   browser.menus.update("set-original", { visible: kept && ZF.isRealUrl(tab.url) && original !== tab.url });
-  for (const id of ["zf-new-folder", "zf-new-subfolder", "zf-rename-folder", "zf-remove-folder"]) {
-    browser.menus.update(id, { visible: false });
-  }
+  const spaces = await ZF.loadSpaces();
+  const shown = await ZF.activeSpaceId(tab.windowId, spaces);
+  const current = ZF.tabSpace(await browser.sessions.getTabValue(tab.id, ZF.SPACE_KEY).catch(() => undefined), spaces, shown);
+  browser.menus.update("zf-tab-to-space", { visible: !tab.pinned && spaces.length > 1 });
+  for (const sp of spaces) browser.menus.update(`zf-tab-to-space:${sp.id}`, { enabled: sp.id !== current });
+  for (const id of SIDEBAR_ITEMS) browser.menus.update(id, { visible: false });
   browser.menus.refresh();
 });
 
@@ -78,6 +109,11 @@ browser.menus.onClicked.addListener(async (info, tab) => {
     const urls = urlsToCopy.length ? urlsToCopy : [tab.url];
     navigator.clipboard.writeText(urls.join("\n")).catch(error => console.error("Copy URLs:", error));
     return;
+  }
+  if (String(info.menuItemId).startsWith("zf-tab-to-space:")) {
+    const spaceId = String(info.menuItemId).slice("zf-tab-to-space:".length);
+    const selected = tab.highlighted ? await browser.tabs.query({ windowId: tab.windowId, highlighted: true }) : [tab];
+    return ZF.moveTabsToSpace(selected.filter(t => !t.pinned).map(t => t.id), spaceId);
   }
   if (info.menuItemId === "reset-tab") resetTab(tab);
   if (info.menuItemId === "set-original") markCurrentAsOriginal(tab);
@@ -90,7 +126,7 @@ browser.menus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === "zf-keep") ZF.moveTabs(unpinned.filter((_, i) => !places[i]).map(t => t.id), ZF.ROOT);
   if (info.menuItemId === "zf-unkeep") ZF.moveTabs(unpinned.filter((_, i) => places[i]).map(t => t.id), null);
   if (info.menuItemId === "zf-folder-with-tab") {
-    const folder = await ZF.createFolder("New Folder", null);
+    const folder = await ZF.createFolder("New Folder", null, await ZF.activeSpaceId(tab.windowId, await ZF.loadSpaces()));
     // Every selected tab except Essentials, in tab order.
     await ZF.moveTabs([...unpinned].sort((a, b) => a.index - b.index).map(t => t.id), folder.id);
     browser.runtime.sendMessage({ type: "zf-rename", folderId: folder.id, windowId: tab.windowId }).catch(() => {});
@@ -143,6 +179,46 @@ browser.tabs.onUpdated.addListener((_id, _change, tab) => ZF.keepEssentialLoaded
   properties: ["pinned"],
 });
 
+// ---------------------------------------------------------------------------
+// Spaces (lib/model.js)
+// ---------------------------------------------------------------------------
+
+// Essentials belong to every space; a tab that's pinned or unpinned forgets
+// its space, so an unpinned one stays in the space it's shown in.
+browser.tabs.onUpdated.addListener(
+  async tabId => {
+    if (await browser.sessions.getTabValue(tabId, ZF.SPACE_KEY).catch(() => undefined)) {
+      await ZF.setMeta(tabId, ZF.SPACE_KEY, undefined).catch(() => {});
+      ZF.notifyChanged();
+    }
+  },
+  { properties: ["pinned"] }
+);
+
+// Cheap checks first: tab switches are frequent, and most stay in the space.
+browser.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
+  const tag = await browser.sessions.getTabValue(tabId, ZF.SPACE_KEY).catch(() => undefined);
+  if (!tag) return;
+  const spaces = await ZF.loadSpaces();
+  if (ZF.resolveSpace(spaces, tag) !== (await ZF.activeSpaceId(windowId, spaces))) ZF.followTab(windowId, tabId).catch(() => {});
+});
+
+browser.tabs.onAttached.addListener((tabId, { newWindowId }) => ZF.adoptTab(tabId, newWindowId).catch(() => {}));
+
+// Also kept in storage.session: the background page is unloaded when idle,
+// and a new window wakes it before its own focus change arrives.
+let lastFocusedWindow = null;
+browser.windows.onFocusChanged.addListener(id => {
+  if (id === browser.windows.WINDOW_ID_NONE) return;
+  lastFocusedWindow = id;
+  browser.storage.session.set({ lastFocusedWindow: id }).catch(() => {});
+});
+browser.windows.onCreated.addListener(async win => {
+  if (win.type !== "normal") return;
+  const from = lastFocusedWindow ?? (await browser.storage.session.get("lastFocusedWindow")).lastFocusedWindow ?? null;
+  ZF.initWindow(win.id, from !== win.id ? from : null).catch(() => {});
+});
+
 // Hiding or showing a tab changes where unpositioned kept tabs fall back to,
 // and a tab that was hidden may have been renumbered by a respace while it
 // was away; put Firefox's tab order back in line with the sidebar. Debounced
@@ -174,6 +250,7 @@ browser.storage.onChanged.addListener(changes => {
   if (changes.settings && glanceBefore !== glanceAfter) syncGlanceScript({ tellPages: true });
   // Turning conversion back on converts existing groups.
   if (changes.settings && !changes.settings.oldValue?.folders?.convertTabGroups && changes.settings.newValue?.folders?.convertTabGroups) migrateSoon();
+  if (changes.spaces) createMenus();
 });
 
 // Rare (a setting changed), so messaging every tab is fine; pages don't
@@ -194,7 +271,11 @@ function setUp() {
   createMenus();
   ZF.closeOldPlaceholders().catch(() => {});
   // Restore before migrating (both run in the background's change queue).
-  ZF.restoreFoldersIfMissing().catch(() => {});
+  ZF.restoreFoldersIfMissing()
+    .catch(() => {})
+    .then(() => createMenus())
+    .then(() => ZF.showAllSpaces())
+    .catch(() => {});
   migrateSoon();
 }
 
@@ -372,6 +453,7 @@ browser.windows.onRemoved.addListener(async windowId => {
 
 browser.commands.onCommand.addListener(async (command, tab) => {
   if (command === "reset-tab" && tab && (await ZF.getPlace(tab.id))) await resetTab(tab);
+  if ((command === "space-next" || command === "space-previous") && tab) await ZF.switchSpaceBy(tab.windowId, command === "space-next" ? 1 : -1);
   if (command === "glance-expand") {
     const focused = await browser.windows.getLastFocused();
     await expandGlance(focused.id);
