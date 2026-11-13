@@ -311,11 +311,42 @@ function spaceRenameInput(space) {
   return input;
 }
 
-// Opens the new space (with a new tab, which takes the keyboard). Rename it
-// by double-clicking its name.
+// The New Space dialog asks for a name and an icon; nothing is created until
+// Create (or Enter). The first icon no other space uses is picked to start.
 function newSpace() {
-  return ZF.createSpace(windowId);
+  const dialog = $("space-dialog");
+  if (dialog.open || !view) return;
+  const used = new Set(view.spaces.map(sp => sp.icon));
+  let icon = ZF.SPACE_ICONS.find(i => !used.has(i)) ?? ZF.SPACE_ICONS[0];
+  const drawIcons = () =>
+    $("space-icons").replaceChildren(
+      ...ZF.SPACE_ICONS.map(i =>
+        el("button", { type: "button", role: "radio", className: i === icon ? "selected" : "", textContent: i, "aria-checked": String(i === icon), dataset: { icon: i } })
+      )
+    );
+  drawIcons();
+  $("space-icons").onclick = event => {
+    const choice = event.target.closest("[data-icon]");
+    if (!choice) return;
+    icon = choice.dataset.icon;
+    drawIcons();
+  };
+  const name = $("space-name");
+  name.value = "";
+  name.placeholder = `Space ${view.spaces.length + 1}`;
+  dialog.returnValue = "";
+  dialog.onclose = () => {
+    if (dialog.returnValue === "create") ZF.createSpace(windowId, { name: name.value, icon });
+  };
+  dialog.showModal();
+  name.focus();
 }
+
+$("space-cancel").addEventListener("click", () => $("space-dialog").close());
+// A click on the dimmed area around the dialog cancels it.
+$("space-dialog").addEventListener("click", event => {
+  if (event.target === event.currentTarget) event.currentTarget.close();
+});
 
 // A horizontal trackpad swipe over the sidebar switches space, once per
 // swipe: the momentum that follows is ignored until the wheel goes quiet.
@@ -323,7 +354,7 @@ const swipe = { sum: 0, done: false, timer: null };
 document.addEventListener(
   "wheel",
   event => {
-    if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) || event.target.closest?.("#spaces")) return;
+    if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) || event.target.closest?.("#spaces, dialog")) return;
     event.preventDefault();
     clearTimeout(swipe.timer);
     swipe.timer = setTimeout(() => Object.assign(swipe, { sum: 0, done: false }), 250);
@@ -728,6 +759,11 @@ function renameInput(folder) {
 let menuTarget = null;
 
 document.addEventListener("contextmenu", event => {
+  if (event.target.closest("dialog")) {
+    menuTarget = null;
+    event.preventDefault();
+    return;
+  }
   const spaceItem = event.target.closest("#spaces [data-space-id], #space-label");
   if (spaceItem && view) {
     menuTarget = { spaceId: spaceItem.dataset.spaceId ?? view.spaceId };

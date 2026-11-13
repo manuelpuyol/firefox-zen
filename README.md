@@ -89,7 +89,7 @@ Behaviour:
 Like Zen's spaces: each window shows one space at a time, with its own kept tabs, folders and regular tabs. Essentials are shared by every space.
 
 - **Switch** by clicking a space's icon at the bottom, swiping sideways with two fingers over the sidebar, or with Ctrl+Option+→ / Ctrl+Option+← (change them in Firefox's shortcut settings). Switching goes to the space's most recently used tab, and an empty space opens a new tab.
-- **+** creates a space and switches to it; double-click its name to rename it.
+- **+** (or *New Space* in a space's menu) asks for a name and an icon, then switches to the new space. An icon no other space uses is suggested. Double-click a space's name to rename it later.
 - **New tabs** open in the current space. Switching to a tab from another space (e.g. *Switch to Tab* in the address bar) switches to its space.
 - **Right-click a space** (its icon or its name under the Essentials) to rename it (or double-click the name), pick its icon, give it its own background, reorder it, create a space, or delete it. Deleting a space never closes tabs: its tabs and folders move to the space before it.
 - **Move tabs and folders between spaces** with *Move to Space* in the tab menu (acts on every selected tab) and *Move Folder to Space* in the folder menu. A kept tab moved on its own goes to the other space's top level, since a folder belongs to one space.

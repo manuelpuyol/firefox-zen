@@ -1107,10 +1107,17 @@ ZF.switchSpaceBy = async (windowId, delta) => {
   if (next) await ZF.local.switchSpace(windowId, next.id);
 };
 
-ZF.createSpace = async (windowId = null) => {
+// name and icon come from the New Space dialog; without them it's "Space N"
+// with the first icon no other space uses.
+ZF.createSpace = async (windowId = null, { name = "", icon = null } = {}) => {
   const space = await ZF.mutateSpaces(spaces => {
     const used = new Set(spaces.map(s => s.icon));
-    const created = { id: `s${ZF.newId().slice(1)}`, name: `Space ${spaces.length + 1}`, icon: ZF.SPACE_ICONS.find(i => !used.has(i)) ?? "⭐", background: null };
+    const created = {
+      id: `s${ZF.newId().slice(1)}`,
+      name: cleanSpaceName(name) || `Space ${spaces.length + 1}`,
+      icon: ZF.SPACE_ICONS.includes(icon) ? icon : ZF.SPACE_ICONS.find(i => !used.has(i)) ?? "⭐",
+      background: null,
+    };
     spaces.push(created);
     return created;
   });
