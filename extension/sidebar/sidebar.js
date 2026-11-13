@@ -119,7 +119,7 @@ function scheduleRender() {
 // Only what the list shows; if it's unchanged, the DOM is left alone.
 function signature(v) {
   // Place and position too: a move can change only a tab's stored position.
-  const tab = t => [t.id, t.title, t.url, t.favIconUrl, t.active, t.highlighted, t.discarded, t.audible, t.mutedInfo?.muted, t.zfOriginalUrl, t.zfPlace, t.zfOrder];
+  const tab = t => [t.id, t.title, t.url, t.favIconUrl, t.active, t.highlighted, t.discarded, t.audible, t.mutedInfo?.muted, t.zfOriginalUrl, t.zfPlace, t.zfOrder, t.zfForeignSpace?.id];
   return JSON.stringify([
     v.essentials.map(tab),
     v.folders.map(f => [f.id, f.name, f.parentId, f.order, f.collapsed]),
@@ -545,8 +545,9 @@ function visibleTabOrder() {
     .map(node => Number(node.dataset.tabId));
 }
 
+// The order rows appear in, including another space's listed (sharing) tab.
 function orderOnScreen(ids) {
-  const order = ZF.displayOrder(view);
+  const order = [...view.essentials.map(t => t.id), ...ZF.keptOrder(view), ...view.regular.map(t => t.id)];
   return [...ids].sort((a, b) => order.indexOf(a) - order.indexOf(b));
 }
 
@@ -889,17 +890,17 @@ function dropTarget(event, drag) {
     if (drag.kind !== "tab") return null;
     const id = Number(target.dataset.tabId);
     if (drag.ids.includes(id)) return null;
-    return { node: target, mark: x < 0.5 ? "drop-before" : "drop-after", run: () => ZF.moveTabs(drag.ids, "essentials", x < 0.5 ? { beforeId: id } : { afterId: id }) };
+    return { node: target, mark: x < 0.5 ? "drop-before" : "drop-after", run: () => ZF.moveTabs(drag.ids, "essentials", x < 0.5 ? { beforeId: id, claim: true } : { afterId: id, claim: true }) };
   }
   if (target.id === "essentials") {
     if (drag.kind !== "tab") return null;
-    return { node: target, mark: "drop-zone", run: () => ZF.moveTabs(drag.ids, "essentials") };
+    return { node: target, mark: "drop-zone", run: () => ZF.moveTabs(drag.ids, "essentials", { claim: true }) };
   }
   const moving = drag.kind === "folder" ? [{ kind: "folder", id: drag.id }] : drag.ids.map(id => ({ kind: "tab", id }));
   // A folder can't be dropped inside itself or its own subfolders.
   const canEnter = key => drag.kind !== "folder" || (key !== drag.id && !(key !== ZF.ROOT && ZF.isDescendant(view.folders, key, drag.id)));
   const into = (key, opts, node, mark) =>
-    canEnter(key) ? { node, mark, run: () => ZF.moveItems(windowId, moving, key, opts) } : null;
+    canEnter(key) ? { node, mark, run: () => ZF.moveItems(windowId, moving, key, { ...opts, claim: true }) } : null;
 
   if (target.classList.contains("folder")) {
     const folderId = target.dataset.folderId;
@@ -922,7 +923,7 @@ function dropTarget(event, drag) {
     const before = y < 0.5;
     if (target.dataset.place === "regular") {
       if (drag.kind === "folder") return null;
-      return { node: target, mark: before ? "drop-before" : "drop-after", run: () => ZF.moveTabs(drag.ids, null, before ? { beforeId: id } : { afterId: id }) };
+      return { node: target, mark: before ? "drop-before" : "drop-after", run: () => ZF.moveTabs(drag.ids, null, before ? { beforeId: id, claim: true } : { afterId: id, claim: true }) };
     }
     return into(target.dataset.place, { anchor: { kind: "tab", id }, after: !before }, target, before ? "drop-before" : "drop-after");
   }
@@ -930,9 +931,9 @@ function dropTarget(event, drag) {
   if (drag.kind !== "tab") return null;
   if (target.id === "separator") {
     const first = view.regular.find(t => !drag.ids.includes(t.id));
-    return { node: target, mark: "drop-zone", run: () => ZF.moveTabs(drag.ids, null, first ? { beforeId: first.id } : {}) };
+    return { node: target, mark: "drop-zone", run: () => ZF.moveTabs(drag.ids, null, first ? { beforeId: first.id, claim: true } : { claim: true }) };
   }
-  return { node: target, mark: "drop-zone", run: () => ZF.moveTabs(drag.ids, null) };
+  return { node: target, mark: "drop-zone", run: () => ZF.moveTabs(drag.ids, null, { claim: true }) };
 }
 
 document.addEventListener("dragover", event => {

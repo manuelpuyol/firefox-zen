@@ -408,7 +408,9 @@ ZF.normalizeOrder = async windowId => ZF.applyOrder(windowId, ZF.desiredOrder(aw
 // Move tabs (kept in the given order) to a section/folder. place:
 // "essentials" | null (regular) | ROOT | folderId. Position: before/after
 // another tab, or the end.
-ZF.moveTabs = async (tabIds, place, { beforeId = null, afterId = null } = {}) => {
+// claim: a drag in the sidebar, which also brings another space's listed
+// (sharing) tab into the shown space; menu actions leave its space alone.
+ZF.moveTabs = async (tabIds, place, { beforeId = null, afterId = null, claim = false } = {}) => {
   if (!tabIds.length) return;
   const anchor = beforeId ?? afterId;
   if (anchor && tabIds.includes(anchor)) return;
@@ -438,7 +440,7 @@ ZF.moveTabs = async (tabIds, place, { beforeId = null, afterId = null } = {}) =>
       windowId,
       tabIds.map(id => ({ kind: "tab", id })),
       place,
-      anchor ? { anchor: { kind: "tab", id: anchor }, after: Boolean(afterId) } : {}
+      { claim, ...(anchor ? { anchor: { kind: "tab", id: anchor }, after: Boolean(afterId) } : {}) }
     );
   }
 
@@ -447,19 +449,29 @@ ZF.moveTabs = async (tabIds, place, { beforeId = null, afterId = null } = {}) =>
     if (tab.pinned) tab = await browser.tabs.update(id, { pinned: false });
     await ZF.setPlace(tab, null);
   }
-  await claimForSpace(tabIds, windowId);
+  if (claim) await claimForSpace(tabIds, windowId);
   const view = await ZF.buildView(windowId);
+  const listed = view.regular.map(t => t.id).filter(id => !tabIds.includes(id));
   const regular = view.regular.filter(t => !t.zfForeignSpace).map(t => t.id).filter(id => !tabIds.includes(id));
-  const at = anchor ? regular.indexOf(anchor) : -1;
-  if (at === -1) regular.push(...tabIds);
-  else regular.splice(at + (afterId ? 1 : 0), 0, ...tabIds);
+  // Dropped next to another space's listed tab: use this space's nearest
+  // neighbour on that side instead.
+  let at = regular.length;
+  const k = anchor ? listed.indexOf(anchor) : -1;
+  if (k !== -1 && afterId) {
+    const prev = listed.slice(0, k + 1).reverse().find(id => regular.includes(id));
+    at = prev ? regular.indexOf(prev) + 1 : 0;
+  } else if (k !== -1) {
+    const next = listed.slice(k).find(id => regular.includes(id));
+    at = next ? regular.indexOf(next) : regular.length;
+  }
+  regular.splice(at, 0, ...tabIds);
   await ZF.applyOrder(windowId, [...ZF.keptOrder(view), ...regular]);
 };
 
 // Move tabs and/or folders into a folder (or ROOT), before/after another item
 // of that folder, at its start, or at its end. Subfolders and tabs share one
 // order, so a subfolder can sit anywhere among a folder's tabs.
-ZF.moveItems = async (windowId, moving, key, { anchor = null, after = false, atStart = false } = {}) => {
+ZF.moveItems = async (windowId, moving, key, { anchor = null, after = false, atStart = false, claim = false } = {}) => {
   if (!moving.length || (anchor && moving.some(m => m.kind === anchor.kind && m.id === anchor.id))) return;
   const parentId = key === ZF.ROOT ? null : key;
   const movingFolders = moving.filter(m => m.kind === "folder").map(m => m.id);
@@ -473,7 +485,7 @@ ZF.moveItems = async (windowId, moving, key, { anchor = null, after = false, atS
     if (tab.pinned) tab = await browser.tabs.update(m.id, { pinned: false });
     await ZF.setPlace(tab, key);
   }
-  await claimForSpace(moving.filter(m => m.kind === "tab").map(m => m.id), windowId);
+  if (claim) await claimForSpace(moving.filter(m => m.kind === "tab").map(m => m.id), windowId);
 
   const view = await ZF.buildView(windowId);
   view.folders = view.folders.map(f => (movingFolders.includes(f.id) ? { ...f, parentId } : f));
@@ -1103,7 +1115,26 @@ async function showSpace(windowId, { focusLatest = false } = {}) {
     if (latest) await browser.tabs.update(latest.id, { active: true });
     else await browser.tabs.create({ windowId });
   }
-  if (hide.length) await browser.tabs.hide(hide).catch(error => console.error("Hide tabs:", error));
+  return hide.length ? hideTabs(windowId, hide) : true;
+}
+
+// Whether the tabs ended up hidden. A tab closing meanwhile makes the whole
+// call fail, so it's tried again with the tabs that are still there.
+async function hideTabs(windowId, ids) {
+  try {
+    await browser.tabs.hide(ids);
+    return true;
+  } catch {
+    const left = (await browser.tabs.query({ windowId })).filter(t => ids.includes(t.id) && !t.hidden && !t.active && !t.pinned).map(t => t.id);
+    if (!left.length) return true;
+    try {
+      await browser.tabs.hide(left);
+      return true;
+    } catch (error) {
+      console.error("Hide tabs:", error);
+      return false;
+    }
+  }
 }
 
 ZF.showSpaceIn = windowId => showSpace(windowId);
@@ -1113,10 +1144,11 @@ ZF.showSpaceIn = windowId => showSpace(windowId);
 ZF.showAllSpaces = async () => {
   let ok = true;
   for (const win of await browser.windows.getAll({ windowTypes: ["normal"] })) {
-    await showSpace(win.id).catch(error => {
-      ok = false;
+    const done = await showSpace(win.id).catch(error => {
       console.error("Show space:", error);
+      return false;
     });
+    if (!done) ok = false;
   }
   return ok;
 };
