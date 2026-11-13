@@ -21,7 +21,7 @@ browser.runtime.onMessage.addListener((message, sender) => {
 
 async function resetTab(tab) {
   const original = await browser.sessions.getTabValue(tab.id, ZF.ORIGINAL_URL_KEY);
-  if (original && original !== tab.url) await browser.tabs.update(tab.id, { url: original });
+  if (typeof original === "string" && original && original !== tab.url) await browser.tabs.update(tab.id, { url: original });
 }
 
 async function markCurrentAsOriginal(tab) {

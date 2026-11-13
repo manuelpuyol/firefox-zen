@@ -21,7 +21,7 @@
 // Tabs of other spaces are hidden in Firefox (tabs.hide), so Ctrl+Tab, the
 // tab list and tab search only see the current space.
 
-const ZF = (globalThis.ZF ??= {});
+const ZF = (globalThis.ZF ??= /** @type {ZFApi} */ ({}));
 
 ZF.ROOT = "root";
 ZF.FOLDER_KEY = "zfFolder";
@@ -944,6 +944,7 @@ ZF.restoreFolders = async raw => {
     offer(pool, await browser.sessions.getTabValue(tab.id, ZF.ORIGINAL_URL_KEY).catch(() => undefined), tab);
   }
   const used = new Set();
+  /** @param {(tab: browser.tabs.Tab) => Promise<boolean>} [accept] */
   const take = async (map, container, urls, accept = async () => true) => {
     for (const url of urls) {
       for (const tab of map.get(keyOf(container, url)) ?? []) {

@@ -2,7 +2,7 @@
 
 // All user settings, stored as one object under "settings" in storage.local.
 (() => {
-  const ZF = (globalThis.ZF ??= {});
+  const ZF = (globalThis.ZF ??= /** @type {ZFApi} */ ({}));
 
   ZF.SETTINGS_DEFAULTS = Object.freeze({
     sidebar: {

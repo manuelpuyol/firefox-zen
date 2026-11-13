@@ -6,7 +6,7 @@
 // skip them too (autoDiscardable: false).
 
 (() => {
-const ZF = (globalThis.ZF ??= {});
+const ZF = (globalThis.ZF ??= /** @type {ZFApi} */ ({}));
 
 ZF.UNLOAD_ALARM = "zf-auto-unload";
 
@@ -44,6 +44,7 @@ ZF.unloadSkipReason = (tab, staleMs, now = Date.now(), { keepEssentials = true, 
   return null;
 };
 
+/** @param {{ staleMs?: number }} [options] */
 ZF.unloadStaleTabs = async ({ staleMs } = {}) => {
   const settings = await ZF.getUnloadSettings();
   if (staleMs === undefined) staleMs = settings.staleMinutes * 60_000;

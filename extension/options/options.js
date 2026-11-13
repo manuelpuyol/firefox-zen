@@ -4,8 +4,10 @@ let settings;
 
 const get = (obj, path) => path.split(".").reduce((o, k) => o?.[k], obj);
 
+const settingInputs = () => /** @type {NodeListOf<HTMLInputElement>} */ (document.querySelectorAll("[data-setting]"));
+
 function render() {
-  for (const input of document.querySelectorAll("[data-setting]")) {
+  for (const input of settingInputs()) {
     const value = get(settings, input.dataset.setting);
     if (input.type === "checkbox") input.checked = value;
     else input.value = String(value);
@@ -15,10 +17,10 @@ function render() {
       input.value = String(value);
     }
   }
-  for (const output of document.querySelectorAll("[data-output]")) {
+  for (const output of /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll("[data-output]"))) {
     output.textContent = `${get(settings, output.dataset.output)}${output.dataset.unit ?? ""}`;
   }
-  for (const row of document.querySelectorAll("[data-depends]")) {
+  for (const row of /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll("[data-depends]"))) {
     row.classList.toggle("disabled", !get(settings, row.dataset.depends));
   }
 }
@@ -39,10 +41,10 @@ function saveSoon(input) {
   pending.set(input, setTimeout(() => save(input), 300));
 }
 
-for (const input of document.querySelectorAll("[data-setting]")) {
+for (const input of settingInputs()) {
   if (input.type === "range" || input.tagName === "TEXTAREA") {
     input.addEventListener("input", () => {
-      const output = document.querySelector(`[data-output="${input.dataset.setting}"]`);
+      const output = /** @type {HTMLElement} */ (document.querySelector(`[data-output="${input.dataset.setting}"]`));
       if (output) output.textContent = `${input.value}${output.dataset.unit ?? ""}`;
       saveSoon(input);
     });
@@ -81,9 +83,10 @@ async function showLastRun(summary) {
 }
 
 document.getElementById("unload-now").addEventListener("click", async event => {
-  event.target.disabled = true;
+  const button = /** @type {HTMLButtonElement} */ (event.target);
+  button.disabled = true;
   await showLastRun(await browser.runtime.sendMessage({ type: "zf-unload-now" }));
-  event.target.disabled = false;
+  button.disabled = false;
 });
 
 // Shortcuts
@@ -132,7 +135,8 @@ browser.permissions.onRemoved.addListener(showGlanceAccess);
 
 document.getElementById("import-zen").addEventListener("click", () => document.getElementById("import-file").click());
 document.getElementById("import-file").addEventListener("change", async event => {
-  const file = event.target.files[0];
+  const input = /** @type {HTMLInputElement} */ (event.target);
+  const file = input.files[0];
   const result = document.getElementById("import-result");
   if (!file) return;
   try {
@@ -141,7 +145,7 @@ document.getElementById("import-file").addEventListener("change", async event =>
   } catch (error) {
     result.textContent = `Couldn't import: ${error.message}`;
   }
-  event.target.value = "";
+  input.value = "";
 });
 
 // Backup
@@ -158,7 +162,8 @@ document.getElementById("export-backup").addEventListener("click", async () => {
 });
 document.getElementById("restore-backup").addEventListener("click", () => document.getElementById("restore-file").click());
 document.getElementById("restore-file").addEventListener("change", async event => {
-  const file = event.target.files[0];
+  const input = /** @type {HTMLInputElement} */ (event.target);
+  const file = input.files[0];
   const result = document.getElementById("backup-result");
   if (!file) return;
   try {
@@ -170,7 +175,7 @@ document.getElementById("restore-file").addEventListener("change", async event =
   } catch (error) {
     result.textContent = `Couldn't restore: ${error.message}`;
   }
-  event.target.value = "";
+  input.value = "";
 });
 
 document.getElementById("reset").addEventListener("click", async () => {

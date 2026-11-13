@@ -1,0 +1,16 @@
+{
+  // Type-checks the extension's JavaScript (npm run typecheck); nothing is compiled.
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "target": "es2023",
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "types": ["firefox-webext-browser"],
+    // Each page loads its scripts into its own global scope, so check every
+    // file on its own; ZF, shared through globalThis, is declared in types/.
+    "moduleDetection": "force"
+  },
+  "include": ["extension/**/*.js", "types/*.d.ts"]
+}

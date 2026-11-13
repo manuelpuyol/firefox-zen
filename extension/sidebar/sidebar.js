@@ -179,7 +179,7 @@ async function render({ force = false } = {}) {
   revealActive();
 
   if (renamingFolderId) {
-    const input = document.querySelector(`[data-rename-for="${renamingFolderId}"]`);
+    const input = /** @type {HTMLInputElement} */ (document.querySelector(`[data-rename-for="${renamingFolderId}"]`));
     // The folder is gone: never leave the sidebar stuck in rename mode.
     if (!input) {
       renamingFolderId = null;
@@ -280,9 +280,10 @@ function startSpaceRename(spaceId) {
 document.addEventListener(
   "pointerdown",
   event => {
-    if (finishSpaceRename && !event.target.closest?.("#space-label .rename")) finishSpaceRename(true);
-    const box = document.activeElement;
-    if (box?.classList.contains("rename") && !box.contains(event.target)) box.blur();
+    const target = /** @type {Element} */ (event.target);
+    if (finishSpaceRename && !target.closest?.("#space-label .rename")) finishSpaceRename(true);
+    const box = /** @type {HTMLElement} */ (document.activeElement);
+    if (box?.classList.contains("rename") && !box.contains(target)) box.blur();
   },
   true
 );
@@ -314,7 +315,7 @@ function spaceRenameInput(space) {
 // The New Space dialog asks for a name and an icon; nothing is created until
 // Create (or Enter). The first icon no other space uses is picked to start.
 function newSpace() {
-  const dialog = $("space-dialog");
+  const dialog = /** @type {HTMLDialogElement} */ ($("space-dialog"));
   if (dialog.open || !view) return;
   const used = new Set(view.spaces.map(sp => sp.icon));
   let icon = ZF.SPACE_ICONS.find(i => !used.has(i)) ?? ZF.SPACE_ICONS[0];
@@ -326,12 +327,12 @@ function newSpace() {
     );
   drawIcons();
   $("space-icons").onclick = event => {
-    const choice = event.target.closest("[data-icon]");
+    const choice = /** @type {Element} */ (event.target).closest("[data-icon]");
     if (!choice) return;
     icon = choice.dataset.icon;
     drawIcons();
   };
-  const name = $("space-name");
+  const name = /** @type {HTMLInputElement} */ ($("space-name"));
   name.value = "";
   name.placeholder = `Space ${view.spaces.length + 1}`;
   dialog.returnValue = "";
@@ -342,10 +343,11 @@ function newSpace() {
   name.focus();
 }
 
-$("space-cancel").addEventListener("click", () => $("space-dialog").close());
+const spaceDialog = /** @type {HTMLDialogElement} */ ($("space-dialog"));
+$("space-cancel").addEventListener("click", () => spaceDialog.close());
 // A click on the dimmed area around the dialog cancels it.
-$("space-dialog").addEventListener("click", event => {
-  if (event.target === event.currentTarget) event.currentTarget.close();
+spaceDialog.addEventListener("click", event => {
+  if (event.target === spaceDialog) spaceDialog.close();
 });
 
 // A horizontal trackpad swipe over the sidebar switches space, once per
@@ -354,7 +356,8 @@ const swipe = { sum: 0, done: false, timer: null };
 document.addEventListener(
   "wheel",
   event => {
-    if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) || event.target.closest?.("#spaces, dialog")) return;
+    const target = /** @type {Element} */ (event.target);
+    if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) || target.closest?.("#spaces, dialog")) return;
     event.preventDefault();
     clearTimeout(swipe.timer);
     swipe.timer = setTimeout(() => Object.assign(swipe, { sum: 0, done: false }), 250);
@@ -458,6 +461,7 @@ function folderBlock(folder, depth) {
 // list, which also avoids re-reading every tab's session values.
 // ---------------------------------------------------------------------------
 
+/** @returns {NodeListOf<HTMLElement>} */
 function rowsFor(tabId) {
   return document.querySelectorAll(`[data-tab-id="${tabId}"]`);
 }
@@ -516,7 +520,7 @@ function onTabPatched(tabId, change, tab) {
     if ("favIconUrl" in change) node.querySelector(":scope > .favicon")?.replaceWith(favicon(tab));
     const reset = node.querySelector(".reset");
     if (reset) reset.classList.toggle("changed", Boolean(known.zfOriginalUrl && tab.url !== known.zfOriginalUrl && ZF.isRealUrl(tab.url)));
-    const close = node.querySelector(".close");
+    const close = /** @type {HTMLElement} */ (node.querySelector(".close"));
     if (close && "discarded" in change && node.dataset.place !== "regular") {
       close.title = tab.discarded || !settings.sidebar.unloadOnClose ? "Close tab" : "Unload tab (close again to remove)";
     }
@@ -540,7 +544,7 @@ function selectedIds() {
 // Tabs in the order they appear in the sidebar, skipping ones hidden inside
 // collapsed folders.
 function visibleTabOrder() {
-  return [...document.querySelectorAll("[data-tab-id]")]
+  return [.../** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll("[data-tab-id]"))]
     .filter(node => node.classList.contains("tile") || node.getBoundingClientRect().height > 0)
     .map(node => Number(node.dataset.tabId));
 }
@@ -567,7 +571,7 @@ async function highlight(ids, activeId) {
 function showSelection(ids) {
   const set = new Set(ids.length > 1 ? ids : []);
   for (const tab of view?.tabsById.values() ?? []) tab.highlighted = ids.includes(tab.id);
-  for (const node of document.querySelectorAll("[data-tab-id]")) node.classList.toggle("selected", set.has(Number(node.dataset.tabId)));
+  for (const node of /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll("[data-tab-id]"))) node.classList.toggle("selected", set.has(Number(node.dataset.tabId)));
 }
 
 async function selectRange(toId) {
@@ -621,19 +625,20 @@ async function closeFromSidebar(tabId) {
 // ---------------------------------------------------------------------------
 
 document.addEventListener("click", async event => {
-  const action = event.target.closest("[data-action]")?.dataset.action;
-  const item = event.target.closest("[data-tab-id], [data-folder-id]");
-  if (event.target.closest("#new-tab")) return browser.tabs.create({ windowId });
-  if (event.target.closest("#settings")) return browser.runtime.openOptionsPage();
+  const target = /** @type {Element} */ (event.target);
+  const action = target.closest("[data-action]")?.dataset.action;
+  const item = target.closest("[data-tab-id], [data-folder-id]");
+  if (target.closest("#new-tab")) return browser.tabs.create({ windowId });
+  if (target.closest("#settings")) return browser.runtime.openOptionsPage();
   // Must run straight from the click: closing needs a user action.
-  if (event.target.closest("#hide-sidebar")) return browser.sidebarAction.close();
-  if (event.target.closest("#clear")) return onClear();
-  if (event.target.closest("#collapse-all")) return toggleAllFolders();
-  if (event.target.closest("#new-space")) return newSpace();
-  const spaceButton = event.target.closest("#spaces [data-space-id]");
+  if (target.closest("#hide-sidebar")) return browser.sidebarAction.close();
+  if (target.closest("#clear")) return onClear();
+  if (target.closest("#collapse-all")) return toggleAllFolders();
+  if (target.closest("#new-space")) return newSpace();
+  const spaceButton = target.closest("#spaces [data-space-id]");
   if (spaceButton) return ZF.switchSpace(windowId, spaceButton.dataset.spaceId);
-  if (event.target.closest("#space-label")) return;
-  if (!item || event.target.closest(".rename")) return;
+  if (target.closest("#space-label")) return;
+  if (!item || target.closest(".rename")) return;
 
   if (item.dataset.folderId) {
     const folder = view.folders.find(f => f.id === item.dataset.folderId);
@@ -691,13 +696,15 @@ function onClear() {
 }
 
 document.addEventListener("dblclick", event => {
-  if (event.target.closest("#space-label") && !renamingSpaceId) startSpaceRename(view.spaceId);
+  const target = /** @type {Element} */ (event.target);
+  if (target.closest("#space-label") && !renamingSpaceId) startSpaceRename(view.spaceId);
 });
 
 // Middle-click: unload (or close) like the close button.
 document.addEventListener("auxclick", event => {
+  const target = /** @type {Element} */ (event.target);
   if (event.button !== 1) return;
-  const item = event.target.closest("[data-tab-id]");
+  const item = target.closest("[data-tab-id]");
   if (item) {
     event.preventDefault();
     closeFromSidebar(Number(item.dataset.tabId));
@@ -731,7 +738,7 @@ function startRename(folderId) {
 // Whichever render draws the rename box wires it up, so a redraw mid-rename
 // keeps working save/cancel handlers and what was typed so far.
 function renameInput(folder) {
-  const previous = document.querySelector(`[data-rename-for="${folder.id}"]`);
+  const previous = /** @type {HTMLInputElement} */ (document.querySelector(`[data-rename-for="${folder.id}"]`));
   const input = el("input", { className: "rename", value: previous?.value ?? folder.name, dataset: { renameFor: folder.id } });
   if (previous) input.zfSelection = [previous.selectionStart, previous.selectionEnd];
   const finish = async save => {
@@ -763,25 +770,26 @@ function renameInput(folder) {
 let menuTarget = null;
 
 document.addEventListener("contextmenu", event => {
-  if (event.target.closest("dialog")) {
+  const target = /** @type {Element} */ (event.target);
+  if (target.closest("dialog")) {
     menuTarget = null;
     event.preventDefault();
     return;
   }
-  const spaceItem = event.target.closest("#spaces [data-space-id], #space-label");
+  const spaceItem = target.closest("#spaces [data-space-id], #space-label");
   if (spaceItem && view) {
     menuTarget = { spaceId: spaceItem.dataset.spaceId ?? view.spaceId };
     browser.menus.overrideContext({ showDefaults: false });
     return;
   }
-  const tabItem = event.target.closest("[data-tab-id]");
+  const tabItem = target.closest("[data-tab-id]");
   if (tabItem) {
     menuTarget = null;
     browser.menus.overrideContext({ context: "tab", tabId: Number(tabItem.dataset.tabId) });
     return;
   }
-  const folderRow = event.target.closest(".row.folder");
-  menuTarget = { folderId: folderRow?.dataset.folderId ?? null, inPinned: Boolean(event.target.closest("#pinned")) };
+  const folderRow = target.closest(".row.folder");
+  menuTarget = { folderId: folderRow?.dataset.folderId ?? null, inPinned: Boolean(target.closest("#pinned")) };
   browser.menus.overrideContext({ showDefaults: false });
 });
 
@@ -856,7 +864,8 @@ function clearIndicators() {
 }
 
 document.addEventListener("dragstart", event => {
-  const item = event.target.closest?.("[draggable=true]");
+  const target = /** @type {Element} */ (event.target);
+  const item = target.closest?.("[draggable=true]");
   if (!item) return;
   if (item.dataset.folderId) {
     dragging = { kind: "folder", id: item.dataset.folderId };
