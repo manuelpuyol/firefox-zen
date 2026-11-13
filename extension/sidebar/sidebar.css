@@ -458,6 +458,13 @@ button {
   width: 12em;
 }
 
+/* Another space's tab, listed only while it's sharing (it can't be hidden). */
+.space-badge {
+  flex: none;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
 /* New space dialog */
 #space-dialog {
   width: min(88vw, 280px);

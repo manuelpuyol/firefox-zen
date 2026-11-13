@@ -171,7 +171,7 @@ async function render({ force = false } = {}) {
   $("pinned").replaceChildren(...ZF.itemsOf(view, ZF.ROOT).map(item => itemNode(item, 0, ZF.ROOT)));
 
   $("regular").replaceChildren(...view.regular.map(tab => tabRow(tab, 0, "regular")));
-  $("separator").classList.toggle("empty", view.regular.length === 0);
+  $("separator").classList.toggle("empty", !view.regular.some(t => !t.zfForeignSpace));
   updateFolderBar();
   renderSpaces();
   applyBackground();
@@ -336,7 +336,7 @@ function newSpace() {
   name.placeholder = `Space ${view.spaces.length + 1}`;
   dialog.returnValue = "";
   dialog.onclose = () => {
-    if (dialog.returnValue === "create") ZF.createSpace(windowId, { name: name.value, icon });
+    if (dialog.returnValue === "create") ZF.createSpace(windowId, { name: name.value, icon }).catch(error => console.error("New space:", error));
   };
   dialog.showModal();
   name.focus();
@@ -412,6 +412,7 @@ function tabRow(tab, depth, place) {
       favicon(tab),
       el("span", { className: "title", textContent: tab.title || tab.url }),
       audio && el("button", { className: "audio", title: tab.mutedInfo?.muted ? "Unmute" : "Mute", textContent: tab.mutedInfo?.muted ? "🔇" : "🔊", dataset: { action: "mute" } }),
+      tab.zfForeignSpace && el("span", { className: "space-badge", textContent: tab.zfForeignSpace.icon, title: `From ${tab.zfForeignSpace.name}; shown here while it's sharing` }),
       place !== "regular" && el("button", { className: `reset${changed ? " changed" : ""}`, title: "Reset to original URL", textContent: "↺", dataset: { action: "reset" } }),
       el("button", {
         className: "close",
@@ -502,6 +503,8 @@ function onTabActivated({ tabId, previousTabId, windowId: activatedWindow }) {
 
 function onTabPatched(tabId, change, tab) {
   const known = view?.tabsById.get(tabId);
+  // Another space's (hidden) tab: nothing on screen changes.
+  if (!known && tab.hidden) return;
   const nodes = rowsFor(tabId);
   if (busy() || !known || !nodes.length) return scheduleRender();
   Object.assign(known, { title: tab.title, url: tab.url, favIconUrl: tab.favIconUrl, discarded: tab.discarded });
@@ -680,7 +683,7 @@ function onClear() {
     return ZF.clearRegular(windowId, view.spaceId);
   }
   clearSpaceId = view.spaceId;
-  const n = view.regular.length;
+  const n = view.regular.filter(t => !t.zfForeignSpace).length;
   button.textContent = `Close ${n} tab${n === 1 ? "" : "s"}?`;
   button.classList.add("confirming");
   clearTimer = setTimeout(resetClear, 3000);
@@ -977,8 +980,10 @@ document.addEventListener("drop", async event => {
   browser.tabs.onHighlighted.addListener(onTabsHighlighted);
   browser.tabs.onUpdated.addListener(onTabPatched, { windowId, properties: ["title", "url", "favIconUrl", "discarded"] });
   browser.tabs.onUpdated.addListener(
-    tabId => {
+    (tabId, change, tab) => {
       ZF.metaCache.delete(tabId);
+      // Sound changes in another space's hidden tab don't show here.
+      if (tab.hidden && !view?.tabsById.has(tabId) && !("hidden" in change || "pinned" in change || "sharingState" in change)) return;
       scheduleRender();
     },
     { windowId, properties: ["audible", "mutedInfo", "pinned", "hidden", "sharingState"] }

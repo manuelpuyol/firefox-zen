@@ -70,10 +70,12 @@ ZF.restoreFoldersIfMissing = async () => {
   const known = new Set((await ZF.loadFolders()).map(f => f.id));
   // Each orphaned folder id, with the space of a tab that points at it.
   const orphans = new Map();
-  for (const tab of await browser.tabs.query({})) {
-    const place = await ZF.getPlace(tab.id);
-    if (place && place !== ZF.ROOT && !known.has(place) && !orphans.get(place)) orphans.set(place, await getSpaceTag(tab.id));
-  }
+  const all = await browser.tabs.query({});
+  const [places, tags] = await Promise.all([Promise.all(all.map(t => ZF.getPlace(t.id))), spaceTags(all)]);
+  all.forEach((_, i) => {
+    const place = places[i];
+    if (place && place !== ZF.ROOT && !known.has(place) && !orphans.get(place)) orphans.set(place, tags[i]);
+  });
   if (orphans.size) {
     await ZF.mutateFolders(folders => {
       let n = folders.filter(f => f.name.startsWith("Recovered folder")).length;
@@ -260,9 +262,17 @@ ZF.buildView = async windowId => {
     // Other spaces' tabs are normally hidden already; this covers the moment
     // before hiding catches up. A tab Firefox can't hide (sharing the camera,
     // microphone or screen) stays listed: it's still in Firefox's tab order.
-    if (ZF.tabSpace(metas[i].space, spaces, spaceId) !== spaceId && !ZF.isSharing(tab)) return;
+    const tabSpaceId = ZF.tabSpace(metas[i].space, spaces, spaceId);
+    if (tabSpaceId !== spaceId && !ZF.isSharing(tab)) return;
     view.tabsById.set(tab.id, tab);
     if (tab.active) view.activeId = tab.id;
+    // Listed with the regular tabs and marked, but Clear and the tab order
+    // leave it to its own space.
+    if (tabSpaceId !== spaceId) {
+      tab.zfForeignSpace = spaces.find(s => s.id === tabSpaceId);
+      view.regular.push(tab);
+      return;
+    }
     let { place, original, order } = metas[i];
     if (place && place !== ZF.ROOT && !known.has(place)) place = ZF.ROOT;
     if (!place) {
@@ -294,15 +304,19 @@ async function keptTabsEverywhere(key) {
   }
   for (const tabs of byWindow.values()) {
     tabs.sort((a, b) => a.index - b.index);
-    let visibleIndex = -1;
-    for (const tab of tabs) {
-      if (!tab.hidden) visibleIndex++;
-      if (tab.pinned) continue;
-      let place = await ZF.getPlace(tab.id);
+    // All reads at once; most tabs aren't in this folder.
+    const places = await Promise.all(tabs.map(t => (t.pinned ? null : ZF.getPlace(t.id))));
+    const inKey = tabs.map((t, i) => {
       // Same fallback as buildView: a tab whose folder is gone shows at the top level.
-      if (place && place !== ZF.ROOT && !known.has(place)) place = ZF.ROOT;
-      if (place !== key) continue;
-      const order = await browser.sessions.getTabValue(tab.id, ZF.ORDER_KEY).catch(() => undefined);
+      const place = places[i] && places[i] !== ZF.ROOT && !known.has(places[i]) ? ZF.ROOT : places[i];
+      return !t.pinned && place === key;
+    });
+    const orders = await Promise.all(tabs.map((t, i) => (inKey[i] ? browser.sessions.getTabValue(t.id, ZF.ORDER_KEY).catch(() => undefined) : undefined)));
+    let visibleIndex = -1;
+    for (const [i, tab] of tabs.entries()) {
+      if (!tab.hidden) visibleIndex++;
+      if (!inKey[i]) continue;
+      const order = orders[i];
       if (typeof order === "number") out.push({ tab, order });
       else if (!tab.hidden) out.push({ tab, order: UNPOSITIONED + visibleIndex });
     }
@@ -334,8 +348,9 @@ ZF.keptOrder = view => {
   return out;
 };
 
-// Firefox's tab order: kept tabs as the sidebar shows them, then regular tabs.
-ZF.desiredOrder = view => [...ZF.keptOrder(view), ...view.regular.map(t => t.id)];
+// Firefox's tab order: kept tabs as the sidebar shows them, then regular tabs
+// (not another space's tab that's only listed because it couldn't be hidden).
+ZF.desiredOrder = view => [...ZF.keptOrder(view), ...view.regular.filter(t => !t.zfForeignSpace).map(t => t.id)];
 
 // Indices of a longest increasing subsequence of `seq`.
 function longestIncreasing(seq) {
@@ -432,8 +447,9 @@ ZF.moveTabs = async (tabIds, place, { beforeId = null, afterId = null } = {}) =>
     if (tab.pinned) tab = await browser.tabs.update(id, { pinned: false });
     await ZF.setPlace(tab, null);
   }
+  await claimForSpace(tabIds, windowId);
   const view = await ZF.buildView(windowId);
-  const regular = view.regular.map(t => t.id).filter(id => !tabIds.includes(id));
+  const regular = view.regular.filter(t => !t.zfForeignSpace).map(t => t.id).filter(id => !tabIds.includes(id));
   const at = anchor ? regular.indexOf(anchor) : -1;
   if (at === -1) regular.push(...tabIds);
   else regular.splice(at + (afterId ? 1 : 0), 0, ...tabIds);
@@ -457,6 +473,7 @@ ZF.moveItems = async (windowId, moving, key, { anchor = null, after = false, atS
     if (tab.pinned) tab = await browser.tabs.update(m.id, { pinned: false });
     await ZF.setPlace(tab, key);
   }
+  await claimForSpace(moving.filter(m => m.kind === "tab").map(m => m.id), windowId);
 
   const view = await ZF.buildView(windowId);
   view.folders = view.folders.map(f => (movingFolders.includes(f.id) ? { ...f, parentId } : f));
@@ -531,6 +548,15 @@ ZF.moveItems = async (windowId, moving, key, { anchor = null, after = false, atS
   if (movingFolders.length || respaced) await ZF.normalizeAllWindows();
   else await ZF.normalizeOrder(windowId);
 };
+
+// Tabs dragged within a window's sidebar join the space it shows (only
+// another space's tab that couldn't be hidden is listed there).
+async function claimForSpace(tabIds, windowId) {
+  const spaces = await ZF.loadSpaces();
+  const shown = await ZF.activeSpaceId(windowId, spaces);
+  const tags = await Promise.all(tabIds.map(getSpaceTag));
+  await Promise.all(tabIds.filter((_, i) => tags[i] && ZF.resolveSpace(spaces, tags[i]) !== shown).map(id => ZF.setMeta(id, ZF.SPACE_KEY, shown)));
+}
 
 ZF.moveTab = (tabId, place, position) => ZF.moveTabs([tabId], place, position);
 
@@ -623,7 +649,8 @@ ZF.clearRegular = async (windowId, spaceId = null) => {
   // Work out what's regular now, not from what a sidebar last drew.
   const view = await ZF.buildView(windowId);
   if (spaceId && view.spaceId !== spaceId) return 0;
-  const ids = view.regular.map(t => t.id);
+  // Only this space's tabs: never another space's call that's listed here.
+  const ids = view.regular.filter(t => !t.zfForeignSpace).map(t => t.id);
   if (!ids.length) return 0;
   if (ids.includes(view.activeId)) {
     const keep = ZF.displayOrder(view).filter(id => !ids.includes(id));
@@ -918,6 +945,7 @@ ZF.restoreFolders = async raw => {
     }
     return null;
   };
+  const restoredFolders = await ZF.loadFolders();
   // Reopened tabs go to the last focused window (never a private one).
   const target = await browser.windows.getLastFocused({ windowTypes: ["normal"] }).catch(() => null);
   const windowId = target && !target.incognito ? target.id : (await browser.windows.getAll({ windowTypes: ["normal"] })).find(w => !w.incognito)?.id;
@@ -939,9 +967,8 @@ ZF.restoreFolders = async raw => {
     const previous = await ZF.getPlace(tab.id);
     await ZF.setPlace(tab, place);
     // A tab in a folder goes to the folder's space.
-    const folders = await ZF.loadFolders();
-    const folder = folders.find(f => f.id === place);
-    await ZF.setMeta(tab.id, ZF.SPACE_KEY, folder ? ZF.folderSpace(folders, folder, spaces) : spaceOf(t.space));
+    const folder = restoredFolders.find(f => f.id === place);
+    await ZF.setMeta(tab.id, ZF.SPACE_KEY, folder ? ZF.folderSpace(restoredFolders, folder, spaces) : spaceOf(t.space));
     if (t.originalUrl && ZF.isWebUrl(t.originalUrl)) await ZF.setMeta(tab.id, ZF.ORIGINAL_URL_KEY, t.originalUrl);
     // A position only means something within its folder.
     if (t.order !== null) await ZF.setMeta(tab.id, ZF.ORDER_KEY, t.order);
@@ -1081,8 +1108,17 @@ async function showSpace(windowId, { focusLatest = false } = {}) {
 
 ZF.showSpaceIn = windowId => showSpace(windowId);
 
+// Each window on its own, so one failing (e.g. closed meanwhile) doesn't
+// stop the rest. Returns whether every window was done.
 ZF.showAllSpaces = async () => {
-  for (const win of await browser.windows.getAll({ windowTypes: ["normal"] })) await showSpace(win.id);
+  let ok = true;
+  for (const win of await browser.windows.getAll({ windowTypes: ["normal"] })) {
+    await showSpace(win.id).catch(error => {
+      ok = false;
+      console.error("Show space:", error);
+    });
+  }
+  return ok;
 };
 
 ZF.switchSpace = async (windowId, spaceId) => {

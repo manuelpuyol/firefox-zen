@@ -279,12 +279,13 @@ browser.runtime.onMessage.addListener((message, sender) => {
 // neither onStartup nor onInstalled fires). storage.session is emptied
 // whenever the extension stops, so waking the background page from idle
 // doesn't repeat this.
-(async () => {
+// Marked done only once every window has been handled; otherwise the next
+// time the background page wakes up tries again.
+const started = (async () => {
   if ((await browser.storage.session.get("spacesStarted")).spacesStarted) return;
-  await browser.storage.session.set({ spacesStarted: true });
   // Restore first, so a wiped storage doesn't show every space as one.
   await ZF.restoreFoldersIfMissing().catch(() => {});
-  await ZF.showAllSpaces().catch(() => {});
+  if (await ZF.showAllSpaces().catch(() => false)) await browser.storage.session.set({ spacesStarted: true });
 })();
 
 function setUp() {
@@ -292,11 +293,11 @@ function setUp() {
   ZF.configureAutoUnload().catch(() => {});
   createMenus();
   ZF.closeOldPlaceholders().catch(() => {});
-  // Restore before migrating (both run in the background's change queue).
-  ZF.restoreFoldersIfMissing()
-    .catch(() => {})
-    .then(() => createMenus());
-  migrateSoon();
+  // The start-up work above restores folders; migrate after it.
+  started.catch(() => {}).finally(() => {
+    createMenus();
+    migrateSoon();
+  });
 }
 
 browser.runtime.onInstalled.addListener(setUp);
