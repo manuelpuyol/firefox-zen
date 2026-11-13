@@ -37,7 +37,7 @@ if [[ "$IMPORT_ZEN" == 1 ]]; then
     python3 -m venv "$KIT/.venv" && "$KIT/.venv/bin/pip" -q install lz4
   fi
   TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-  "$KIT/.venv/bin/python" "$KIT/zen_to_firefox_session.py" "$ZEN_PROFILE" "$TMP/session.jsonlz4"
+  "$KIT/.venv/bin/python" "$KIT/scripts/zen_to_firefox_session.py" "$ZEN_PROFILE" "$TMP/session.jsonlz4"
   "$KIT/.venv/bin/python" -c "import lz4.block,sys; d=open(sys.argv[1],'rb').read(); open(sys.argv[2],'wb').write(lz4.block.decompress(d[8:]))" "$TMP/session.jsonlz4" "$TMP/session.json"
   SESSION_ARG="\"$TMP/session.json\""
 fi
@@ -55,10 +55,10 @@ wait_for port_open 60 || { echo "Marionette didn't start." >&2; exit 1; }
 sleep 4
 port_open && firefox_running || { echo "Firefox exited during startup; re-run ./install.sh." >&2; exit 1; }
 
-python3 "$KIT/marionette.py" "$PORT" run "$KIT/firefox_setup.js" "[\"$KIT\", $SESSION_ARG]"
+python3 "$KIT/scripts/marionette.py" "$PORT" run "$KIT/firefox_setup.js" "[\"$KIT\", $SESSION_ARG]"
 
 echo "Restarting Firefox normally…"
-python3 "$KIT/marionette.py" "$PORT" quit || true
+python3 "$KIT/scripts/marionette.py" "$PORT" quit || true
 wait_for '! firefox_running' 30
 open -a Firefox
 echo "Done."

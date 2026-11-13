@@ -1,7 +1,7 @@
 /* Zen-like Firefox — userChrome.css
  * Tested on Firefox 159 (Nova) on macOS with native vertical tabs and the
  * default (system) theme. Measurements mirror Zen 1.24b.
- * Edit above the @generated marker; run ../generate_css.py to rebuild below it.
+ * Edit above the @generated marker; run ../scripts/generate_css.py to rebuild below it.
  * Requires toolkit.legacyUserProfileCustomizations.stylesheets = true (user.js).
  */
 
@@ -512,7 +512,7 @@
   }
 }
 
-/* @generated — do not edit below this line; run generate_css.py */
+/* @generated — do not edit below this line; run scripts/generate_css.py */
 
 #tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "]:not([hasactivetab]) > .tab-group-label-container,
 #tabbrowser-tabs[orient="vertical"] tab-group[collapsed]:not([label^=" "]) + tab-group[label^=" "]:not([hasactivetab]) > .tabbrowser-tab,

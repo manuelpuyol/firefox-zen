@@ -165,12 +165,12 @@ It also switches Firefox to its default (system) theme, because any add-on theme
 
 Tabs from every Zen space are imported into one window and one space.
 
-If your tabs are already open in Firefox, run `python3 export_zen_folders.py` instead. It writes `~/Downloads/zen-folders.json`; use **Import folders from Zen** on the extension's settings page to recreate the folders. Open tabs with matching addresses move into them, and emptied *Recovered* folders are removed.
+If your tabs are already open in Firefox, run `python3 scripts/export_zen_folders.py` instead. It writes `~/Downloads/zen-folders.json`; use **Import folders from Zen** on the extension's settings page to recreate the folders. Open tabs with matching addresses move into them, and emptied *Recovered* folders are removed.
 
 ## Customising
 
 - `user.js`: Firefox preferences, applied on every launch. To undo one, delete its line and reset it in `about:config`.
-- `chrome/userChrome.css`: the theme. Edit above the `@generated` marker; the variables at the top control spacing, radius, colours and animation speed. Then run `python3 generate_css.py` to rebuild the generated rules (folder counts and subfolder collapsing).
+- `chrome/userChrome.css`: the theme. Edit above the `@generated` marker; the variables at the top control spacing, radius, colours and animation speed. Then run `python3 scripts/generate_css.py` to rebuild the generated rules (folder counts and subfolder collapsing).
 
 Run `./install.sh` again to apply changes.
 

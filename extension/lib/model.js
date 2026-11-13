@@ -678,7 +678,7 @@ async function focusedSpaceId(spaces) {
   return win ? ZF.activeSpaceId(win.id, spaces) : spaces[0].id;
 }
 
-// Import folders exported from Zen (export_zen_folders.py): recreate the
+// Import folders exported from Zen (scripts/export_zen_folders.py): recreate the
 // folder tree and move every open tab whose address matches a tab that was
 // in a Zen folder into it. Existing folders are kept; "Recovered" folders
 // left empty by the import are removed.

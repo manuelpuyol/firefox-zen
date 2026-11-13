@@ -9,8 +9,8 @@ CSS can't count or walk back to a parent group, so we enumerate:
 
 from pathlib import Path
 
-CSS = Path(__file__).parent / "chrome" / "userChrome.css"
-MARKER = "/* @generated — do not edit below this line; run generate_css.py */"
+CSS = Path(__file__).parent.parent / "chrome" / "userChrome.css"
+MARKER = "/* @generated — do not edit below this line; run scripts/generate_css.py */"
 MAX_TABS = 99
 MAX_SIBLINGS = 12
 MAX_DEPTH = 3
