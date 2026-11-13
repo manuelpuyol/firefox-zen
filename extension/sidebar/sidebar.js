@@ -18,6 +18,8 @@ let view = null;
 let dragging = null;
 let renamingFolderId = null;
 let renamingSpaceId = null;
+// Ends the open space rename (true: save what was typed).
+let finishSpaceRename = null;
 // The space the list was last drawn for, to slide in the next one.
 let drawnSpaceId = null;
 let renderPending = false;
@@ -102,7 +104,7 @@ function favicon(tab) {
 // under the pointer at mouseup is no longer the one from mousedown), so
 // redraws wait until the pointer is released, a drag ends or a rename ends.
 function busy() {
-  return pointerDown || dragging || renamingFolderId || renamingSpaceId;
+  return pointerDown || dragging || renamingFolderId;
 }
 
 function scheduleRender() {
@@ -176,18 +178,6 @@ async function render({ force = false } = {}) {
   slideInSpace();
   revealActive();
 
-  if (renamingSpaceId) {
-    const input = document.querySelector("#space-label .rename");
-    if (!input) {
-      renamingSpaceId = null;
-      scheduleRender();
-    } else if (document.activeElement !== input) {
-      input.focus();
-      if (input.zfSelection) input.setSelectionRange(...input.zfSelection);
-      else input.select();
-    }
-  }
-
   if (renamingFolderId) {
     const input = document.querySelector(`[data-rename-for="${renamingFolderId}"]`);
     // The folder is gone: never leave the sidebar stuck in rename mode.
@@ -248,18 +238,30 @@ function renderSpaces() {
   $("spaces").replaceChildren(...icons, el("button", { type: "button", id: "new-space", title: "New space", "aria-label": "New space", textContent: "+" }));
   $("spaces").querySelector(".active")?.scrollIntoView({ inline: "nearest", block: "nearest" });
   const label = $("space-label");
+  // Renaming doesn't hold up redraws (the rest of the sidebar keeps
+  // updating); the box is left alone while it's open.
+  // Switched away mid-rename: keep what was typed.
+  if (renamingSpaceId && renamingSpaceId !== view.spaceId) {
+    if (finishSpaceRename) finishSpaceRename(true);
+    else renamingSpaceId = null;
+  }
+  if (renamingSpaceId === view.spaceId && label.querySelector(".rename")) return;
   label.dataset.spaceId = view.spaceId;
-  label.replaceChildren(
-    ...(renamingSpaceId === view.spaceId
-      ? [spaceRenameInput(view.space)]
-      : [el("span", { textContent: view.space.icon }), el("span", { className: "name", textContent: view.space.name })])
-  );
+  if (renamingSpaceId === view.spaceId) {
+    const input = spaceRenameInput(view.space);
+    label.replaceChildren(input);
+    input.focus();
+    input.select();
+    return;
+  }
+  label.replaceChildren(el("span", { textContent: view.space.icon }), el("span", { className: "name", textContent: view.space.name }));
 }
 
 function slideInSpace() {
   const previous = drawnSpaceId;
   drawnSpaceId = view.spaceId;
   if (!previous || previous === view.spaceId) return;
+  resetClear();
   const ids = view.spaces.map(sp => sp.id);
   const scroll = $("scroll");
   scroll.classList.remove("space-in-next", "space-in-prev");
@@ -269,18 +271,28 @@ function slideInSpace() {
 
 function startSpaceRename(spaceId) {
   renamingSpaceId = spaceId;
-  renderPending = false;
-  clearTimeout(renderTimer);
   render({ force: true });
 }
 
+// On macOS, clicking a button doesn't take focus from a text box, so a
+// rename box would stay open (and its blur never fire). Pressing anywhere
+// outside the box ends the rename, saving what was typed.
+document.addEventListener(
+  "pointerdown",
+  event => {
+    if (finishSpaceRename && !event.target.closest?.("#space-label .rename")) finishSpaceRename(true);
+    const box = document.activeElement;
+    if (box?.classList.contains("rename") && !box.contains(event.target)) box.blur();
+  },
+  true
+);
+
 function spaceRenameInput(space) {
-  const previous = document.querySelector("#space-label .rename");
-  const input = el("input", { className: "rename", value: previous?.value ?? space.name, maxLength: 50 });
-  if (previous) input.zfSelection = [previous.selectionStart, previous.selectionEnd];
+  const input = el("input", { className: "rename", value: space.name, maxLength: 50 });
   const finish = async save => {
-    if (!input.isConnected || renamingSpaceId !== space.id) return;
+    if (renamingSpaceId !== space.id) return;
     renamingSpaceId = null;
+    finishSpaceRename = null;
     const name = input.value.trim();
     try {
       if (save && name) await ZF.updateSpace(space.id, { name });
@@ -295,12 +307,14 @@ function spaceRenameInput(space) {
     if (e.key === "Escape") finish(false);
   });
   input.addEventListener("blur", () => finish(true));
+  finishSpaceRename = finish;
   return input;
 }
 
-async function newSpace() {
-  const space = await ZF.createSpace(windowId);
-  startSpaceRename(space.id);
+// Opens the new space (with a new tab, which takes the keyboard). Rename it
+// by double-clicking its name.
+function newSpace() {
+  return ZF.createSpace(windowId);
 }
 
 // A horizontal trackpad swipe over the sidebar switches space, once per
@@ -616,21 +630,25 @@ document.addEventListener("click", async event => {
   return browser.tabs.update(tabId, { active: true });
 });
 
-// Clear asks once ("Close 5 tabs?") unless confirmation is turned off.
+// Clear asks once ("Close 5 tabs?") unless confirmation is turned off. The
+// confirmation is for the space it was asked in: switching cancels it.
 let clearTimer = null;
+let clearSpaceId = null;
 
 function resetClear() {
   clearTimeout(clearTimer);
+  clearSpaceId = null;
   $("clear").classList.remove("confirming");
   $("clear").textContent = "↓ Clear";
 }
 
 function onClear() {
   const button = $("clear");
-  if (!settings.sidebar.confirmClear || button.classList.contains("confirming")) {
+  if (!settings.sidebar.confirmClear || (button.classList.contains("confirming") && clearSpaceId === view.spaceId)) {
     resetClear();
-    return ZF.clearRegular(windowId);
+    return ZF.clearRegular(windowId, view.spaceId);
   }
+  clearSpaceId = view.spaceId;
   const n = view.regular.length;
   button.textContent = `Close ${n} tab${n === 1 ? "" : "s"}?`;
   button.classList.add("confirming");
@@ -927,7 +945,7 @@ document.addEventListener("drop", async event => {
       ZF.metaCache.delete(tabId);
       scheduleRender();
     },
-    { windowId, properties: ["audible", "mutedInfo", "pinned", "hidden"] }
+    { windowId, properties: ["audible", "mutedInfo", "pinned", "hidden", "sharingState"] }
   );
   browser.storage.onChanged.addListener(changes => {
     if (changes.settings) applySettings(ZF.normalizeSettings(changes.settings.newValue));

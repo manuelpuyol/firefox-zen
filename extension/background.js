@@ -205,6 +205,15 @@ browser.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
 
 browser.tabs.onAttached.addListener((tabId, { newWindowId }) => ZF.adoptTab(tabId, newWindowId).catch(() => {}));
 
+// A tab that couldn't be hidden while it was sharing gets another try once
+// it stops.
+browser.tabs.onUpdated.addListener(
+  (_id, _change, tab) => {
+    if (!tab.pinned && !tab.hidden && !ZF.isSharing(tab)) ZF.showSpaceIn(tab.windowId).catch(() => {});
+  },
+  { properties: ["sharingState"] }
+);
+
 // Also kept in storage.session: the background page is unloaded when idle,
 // and a new window wakes it before its own focus change arrives.
 let lastFocusedWindow = null;
@@ -265,6 +274,19 @@ browser.runtime.onMessage.addListener((message, sender) => {
   }
 });
 
+// Once each time the extension starts, including being turned back on
+// (Firefox shows an extension's hidden tabs when it's turned off, and then
+// neither onStartup nor onInstalled fires). storage.session is emptied
+// whenever the extension stops, so waking the background page from idle
+// doesn't repeat this.
+(async () => {
+  if ((await browser.storage.session.get("spacesStarted")).spacesStarted) return;
+  await browser.storage.session.set({ spacesStarted: true });
+  // Restore first, so a wiped storage doesn't show every space as one.
+  await ZF.restoreFoldersIfMissing().catch(() => {});
+  await ZF.showAllSpaces().catch(() => {});
+})();
+
 function setUp() {
   syncGlanceScript({ tellPages: false });
   ZF.configureAutoUnload().catch(() => {});
@@ -273,9 +295,7 @@ function setUp() {
   // Restore before migrating (both run in the background's change queue).
   ZF.restoreFoldersIfMissing()
     .catch(() => {})
-    .then(() => createMenus())
-    .then(() => ZF.showAllSpaces())
-    .catch(() => {});
+    .then(() => createMenus());
   migrateSoon();
 }
 

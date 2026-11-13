@@ -68,16 +68,17 @@ ZF.restoreFoldersIfMissing = async () => {
     }
   }
   const known = new Set((await ZF.loadFolders()).map(f => f.id));
-  const orphans = new Set();
+  // Each orphaned folder id, with the space of a tab that points at it.
+  const orphans = new Map();
   for (const tab of await browser.tabs.query({})) {
     const place = await ZF.getPlace(tab.id);
-    if (place && place !== ZF.ROOT && !known.has(place)) orphans.add(place);
+    if (place && place !== ZF.ROOT && !known.has(place) && !orphans.get(place)) orphans.set(place, await getSpaceTag(tab.id));
   }
   if (orphans.size) {
     await ZF.mutateFolders(folders => {
       let n = folders.filter(f => f.name.startsWith("Recovered folder")).length;
-      for (const id of orphans) {
-        folders.push({ id, name: `Recovered folder ${++n}`, parentId: null, collapsed: true, order: folders.length });
+      for (const [id, spaceId] of orphans) {
+        folders.push({ id, name: `Recovered folder ${++n}`, parentId: null, collapsed: true, order: folders.length, ...(spaceId ? { spaceId } : {}) });
       }
     });
     report.recoveredFolders = orphans.size;
@@ -162,6 +163,12 @@ ZF.folderSpace = (folders, folder, spaces) => {
 ZF.tabSpace = (tag, spaces, windowSpace) => (tag ? ZF.resolveSpace(spaces, tag) : windowSpace);
 
 const getSpaceTag = tabId => browser.sessions.getTabValue(tabId, ZF.SPACE_KEY).catch(() => undefined);
+// Every tab's tag at once: switching with hundreds of tabs shouldn't wait
+// on each read in turn.
+const spaceTags = tabs => Promise.all(tabs.map(t => (t.pinned ? undefined : getSpaceTag(t.id))));
+
+// Firefox can't hide a tab that's sharing the camera, microphone or screen.
+ZF.isSharing = tab => Boolean(tab.sharingState?.camera || tab.sharingState?.microphone || tab.sharingState?.screen);
 
 // Every write of a tab's sidebar metadata goes through here, so the sidebars
 // can be told exactly which tabs changed (see notifyChanged).
@@ -250,9 +257,10 @@ ZF.buildView = async windowId => {
       view.essentials.push(tab);
       return;
     }
-    // Normally hidden already; this covers a tab Firefox couldn't hide (e.g.
-    // one sharing the camera) and the moment before hiding catches up.
-    if (ZF.tabSpace(metas[i].space, spaces, spaceId) !== spaceId) return;
+    // Other spaces' tabs are normally hidden already; this covers the moment
+    // before hiding catches up. A tab Firefox can't hide (sharing the camera,
+    // microphone or screen) stays listed: it's still in Firefox's tab order.
+    if (ZF.tabSpace(metas[i].space, spaces, spaceId) !== spaceId && !ZF.isSharing(tab)) return;
     view.tabsById.set(tab.id, tab);
     if (tab.active) view.activeId = tab.id;
     let { place, original, order } = metas[i];
@@ -609,9 +617,12 @@ ZF.closeOrUnload = async (tabId, view, { unloadFirst = true, avoid = [] } = {}) 
 ZF.displayOrder = view => [...view.essentials.map(t => t.id), ...ZF.desiredOrder(view)];
 
 // Close every regular tab (Zen's "Clear").
-ZF.clearRegular = async windowId => {
+// spaceId: the space Clear was clicked in; nothing closes if the window has
+// switched to another one since.
+ZF.clearRegular = async (windowId, spaceId = null) => {
   // Work out what's regular now, not from what a sidebar last drew.
   const view = await ZF.buildView(windowId);
+  if (spaceId && view.spaceId !== spaceId) return 0;
   const ids = view.regular.map(t => t.id);
   if (!ids.length) return 0;
   if (ids.includes(view.activeId)) {
@@ -623,12 +634,21 @@ ZF.clearRegular = async windowId => {
   return ids.length;
 };
 
+// The space of the last focused normal window: where imported and restored
+// things go when the file doesn't say.
+async function focusedSpaceId(spaces) {
+  const win = await browser.windows.getLastFocused({ windowTypes: ["normal"] }).catch(() => null);
+  return win ? ZF.activeSpaceId(win.id, spaces) : spaces[0].id;
+}
+
 // Import folders exported from Zen (export_zen_folders.py): recreate the
 // folder tree and move every open tab whose address matches a tab that was
 // in a Zen folder into it. Existing folders are kept; "Recovered" folders
 // left empty by the import are removed.
 ZF.importZenFolders = async data => {
   if (!Array.isArray(data?.folders) || !Array.isArray(data?.tabs)) throw new Error("Not a Zen folders export");
+  // Everything goes into the current space.
+  const spaceId = await focusedSpaceId(await ZF.loadSpaces());
   const idMap = new Map();
   await ZF.mutateFolders(folders => {
     const pending = [...data.folders];
@@ -638,6 +658,7 @@ ZF.importZenFolders = async data => {
       const [zen] = pending.splice(i === -1 ? 0 : i, 1);
       const parentId = zen.parentId ? idMap.get(zen.parentId) ?? null : null;
       const folder = { id: ZF.newId(), name: String(zen.name || "Folder"), parentId, collapsed: Boolean(zen.collapsed), order: ZF.childrenOf(folders, parentId).length };
+      if (!parentId) folder.spaceId = spaceId;
       folders.push(folder);
       idMap.set(zen.id, folder.id);
     }
@@ -654,10 +675,12 @@ ZF.importZenFolders = async data => {
     const folderId = zenFolder && idMap.get(zenFolder);
     if (!folderId) continue;
     await ZF.setPlace(tab, folderId);
+    await ZF.setMeta(tab.id, ZF.SPACE_KEY, spaceId);
     placed++;
   }
 
   await dropEmptyRecoveredFolders();
+  await ZF.local.showAllSpaces();
   await ZF.normalizeAllWindows();
   return { folders: idMap.size, tabs: placed };
 };
@@ -675,8 +698,9 @@ async function dropEmptyRecoveredFolders() {
 }
 
 // ---------------------------------------------------------------------------
-// Backup file: folders, kept tabs (place, position, address) and Essentials.
-// Private windows are left out.
+// Backup file: spaces, folders, kept tabs (place, position, address, space)
+// and Essentials. Private windows are left out. Version 1 files (before
+// spaces) still restore, into the current space.
 // ---------------------------------------------------------------------------
 
 ZF.BACKUP_FORMAT = "zen-folder-tools-backup";
@@ -699,7 +723,8 @@ ZF.isWebUrl = url => {
 };
 
 ZF.exportFolders = async () => {
-  const folders = await ZF.loadFolders();
+  const [folders, spaces] = await Promise.all([ZF.loadFolders(), ZF.loadSpaces()]);
+  const windowSpace = new Map();
   const known = new Set(folders.map(f => f.id));
   const tabs = [];
   const essentials = [];
@@ -719,7 +744,9 @@ ZF.exportFolders = async () => {
     }
     const get = key => browser.sessions.getTabValue(tab.id, key).catch(() => undefined);
     const order = await get(ZF.ORDER_KEY);
+    if (!windowSpace.has(tab.windowId)) windowSpace.set(tab.windowId, await ZF.activeSpaceId(tab.windowId, spaces));
     tabs.push({
+      space: ZF.tabSpace(await get(ZF.SPACE_KEY), spaces, windowSpace.get(tab.windowId)),
       place: known.has(place) ? place : ZF.ROOT,
       order: typeof order === "number" ? order : null,
       url: tab.url,
@@ -730,9 +757,18 @@ ZF.exportFolders = async () => {
   }
   return {
     format: ZF.BACKUP_FORMAT,
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
-    folders: folders.map(f => ({ id: f.id, name: f.name, parentId: f.parentId ?? null, collapsed: Boolean(f.collapsed), order: f.order ?? 0 })),
+    spaces: spaces.map(sp => ({ id: sp.id, name: sp.name, icon: sp.icon, background: sp.background ?? null })),
+    folders: folders.map(f => ({
+      id: f.id,
+      name: f.name,
+      parentId: f.parentId ?? null,
+      collapsed: Boolean(f.collapsed),
+      order: f.order ?? 0,
+      // Subfolders follow their top folder.
+      spaceId: f.parentId ? null : ZF.folderSpace(folders, f, spaces),
+    })),
     tabs,
     essentials,
     // Informational only; restore ignores it.
@@ -746,15 +782,28 @@ ZF.parseBackup = data => {
   const fail = why => {
     throw new Error(`Not a valid backup: ${why}`);
   };
-  if (data?.format !== ZF.BACKUP_FORMAT || data.version !== 1) fail("unknown format");
-  if (!Array.isArray(data.folders) || !Array.isArray(data.tabs) || !Array.isArray(data.essentials ?? [])) fail("missing lists");
-  if (data.folders.length > 5000 || data.tabs.length > 20000 || (data.essentials ?? []).length > 1000) fail("too large");
+  if (data?.format !== ZF.BACKUP_FORMAT || ![1, 2].includes(data.version)) fail("unknown format");
+  if (!Array.isArray(data.folders) || !Array.isArray(data.tabs) || !Array.isArray(data.essentials ?? []) || !Array.isArray(data.spaces ?? [])) fail("missing lists");
+  if (data.folders.length > 5000 || data.tabs.length > 20000 || (data.essentials ?? []).length > 1000 || (data.spaces ?? []).length > 100) fail("too large");
   const str = (v, max) => typeof v === "string" && v.length <= max;
   const num = v => typeof v === "number" && Number.isFinite(v);
+  const spaces = (data.spaces ?? []).map(sp => {
+    if (!str(sp?.id, 100) || !sp.id || typeof sp.name !== "string") fail("bad space");
+    return {
+      id: sp.id,
+      name: cleanSpaceName(sp.name) || "Space",
+      icon: ZF.SPACE_ICONS.includes(sp.icon) ? sp.icon : ZF.SPACE_ICONS[0],
+      background: ZF.BACKGROUNDS.includes(sp.background) ? sp.background : null,
+    };
+  });
+  const spaceIds = new Set(spaces.map(sp => sp.id));
+  if (spaceIds.size !== spaces.length) fail("duplicate space ids");
+  // A space the file doesn't define means "the current space".
+  const spaceField = v => (v === null || v === undefined ? null : str(v, 100) ? (spaceIds.has(v) ? v : null) : fail("bad space reference"));
   const folders = data.folders.map(f => {
     if (!str(f?.id, 100) || !f.id || f.id === ZF.ROOT || typeof f.name !== "string") fail("bad folder");
     if (f.parentId !== null && f.parentId !== undefined && !str(f.parentId, 100)) fail("bad folder parent");
-    return { id: f.id, name: cleanName(f.name), parentId: f.parentId ?? null, collapsed: f.collapsed === true, order: num(f.order) ? f.order : 0 };
+    return { id: f.id, name: cleanName(f.name), parentId: f.parentId ?? null, collapsed: f.collapsed === true, order: num(f.order) ? f.order : 0, spaceId: spaceField(f.spaceId) };
   });
   const byId = new Map(folders.map(f => [f.id, f]));
   if (byId.size !== folders.length) fail("duplicate folder ids");
@@ -774,22 +823,40 @@ ZF.parseBackup = data => {
     if (!str(t?.url, MAX_URL) || !(t.place === ZF.ROOT || byId.has(t.place))) fail("bad tab");
     if (t.originalUrl !== null && t.originalUrl !== undefined && typeof t.originalUrl !== "string") fail("bad tab address");
     const originalUrl = typeof t.originalUrl === "string" && t.originalUrl.length <= MAX_URL ? t.originalUrl : null;
-    return { place: t.place, order: num(t.order) ? t.order : null, url: t.url, originalUrl, container: containerField(t.container), title: str(t.title, 2000) ? t.title : "" };
+    return { place: t.place, order: num(t.order) ? t.order : null, url: t.url, originalUrl, container: containerField(t.container), title: str(t.title, 2000) ? t.title : "", space: spaceField(t.space) };
   });
   const essentials = (data.essentials ?? []).filter(e => !tooLong(e)).map(e => {
     if (!str(e?.url, MAX_URL)) fail("bad Essential");
     return { url: e.url, title: str(e.title, 2000) ? e.title : "", container: containerField(e.container) };
   });
-  return { folders, tabs, essentials, skippedLongAddresses };
+  return { spaces, folders, tabs, essentials, skippedLongAddresses };
 };
 
-// Merges a backup in; nothing is removed. Folders with the same name and
-// parent are reused (so restoring twice doesn't duplicate them), open tabs
-// with a matching address are moved into place, and missing kept tabs are
-// reopened unloaded. Missing Essentials are reopened as pinned tabs.
+// Merges a backup in; nothing is removed. Spaces with the same name, and
+// folders with the same name, parent and space, are reused (so restoring
+// twice doesn't duplicate them); open tabs with a matching address are moved
+// into place (and into their space), and missing kept tabs are reopened
+// unloaded. Missing Essentials are reopened as pinned tabs.
 ZF.restoreFolders = async raw => {
   const data = ZF.parseBackup(raw);
-  const report = { foldersCreated: 0, foldersMatched: 0, tabsMoved: 0, tabsOpened: 0, essentialsOpened: 0, skippedInContainers: 0, skippedLongAddresses: data.skippedLongAddresses };
+  const report = { spacesCreated: 0, foldersCreated: 0, foldersMatched: 0, tabsMoved: 0, tabsOpened: 0, essentialsOpened: 0, skippedInContainers: 0, skippedLongAddresses: data.skippedLongAddresses };
+
+  const spaceMap = new Map();
+  await ZF.mutateSpaces(spaces => {
+    for (const sp of data.spaces) {
+      const same = spaces.find(x => cleanSpaceName(x.name) === sp.name && ![...spaceMap.values()].includes(x.id));
+      if (same) spaceMap.set(sp.id, same.id);
+      else {
+        const created = { ...sp, id: `s${ZF.newId().slice(1)}` };
+        spaces.push(created);
+        spaceMap.set(sp.id, created.id);
+        report.spacesCreated++;
+      }
+    }
+  });
+  const spaces = await ZF.loadSpaces();
+  const current = await focusedSpaceId(spaces);
+  const spaceOf = id => (id === null ? current : spaceMap.get(id) ?? current);
 
   const idMap = new Map();
   await ZF.mutateFolders(folders => {
@@ -800,12 +867,17 @@ ZF.restoreFolders = async raw => {
       const parentId = f.parentId === null ? null : idMap.get(f.parentId);
       const taken = new Set(idMap.values());
       // Names are compared the way parseBackup cleans them up.
-      const same = folders.find(x => (x.parentId ?? null) === parentId && cleanName(x.name) === f.name && !taken.has(x.id));
+      // A top-level folder is only the same folder in the same space.
+      const spaceId = parentId === null ? spaceOf(f.spaceId) : null;
+      const same = folders.find(
+        x => (x.parentId ?? null) === parentId && cleanName(x.name) === f.name && !taken.has(x.id) && (parentId !== null || ZF.folderSpace(folders, x, spaces) === spaceId)
+      );
       if (same) {
         idMap.set(f.id, same.id);
         report.foldersMatched++;
       } else {
         const folder = { id: ZF.newId(), name: f.name, parentId, collapsed: f.collapsed, order: f.order };
+        if (spaceId) folder.spaceId = spaceId;
         folders.push(folder);
         idMap.set(f.id, folder.id);
         report.foldersCreated++;
@@ -866,6 +938,10 @@ ZF.restoreFolders = async raw => {
     const place = t.place === ZF.ROOT ? ZF.ROOT : idMap.get(t.place);
     const previous = await ZF.getPlace(tab.id);
     await ZF.setPlace(tab, place);
+    // A tab in a folder goes to the folder's space.
+    const folders = await ZF.loadFolders();
+    const folder = folders.find(f => f.id === place);
+    await ZF.setMeta(tab.id, ZF.SPACE_KEY, folder ? ZF.folderSpace(folders, folder, spaces) : spaceOf(t.space));
     if (t.originalUrl && ZF.isWebUrl(t.originalUrl)) await ZF.setMeta(tab.id, ZF.ORIGINAL_URL_KEY, t.originalUrl);
     // A position only means something within its folder.
     if (t.order !== null) await ZF.setMeta(tab.id, ZF.ORDER_KEY, t.order);
@@ -888,6 +964,7 @@ ZF.restoreFolders = async raw => {
   }
 
   await dropEmptyRecoveredFolders();
+  await ZF.local.showAllSpaces();
   await ZF.normalizeAllWindows();
   return report;
 };
@@ -982,10 +1059,12 @@ async function showSpace(windowId, { focusLatest = false } = {}) {
   const hide = [];
   const here = [];
   let active = null;
-  for (const tab of await browser.tabs.query({ windowId })) {
+  const tabs = await browser.tabs.query({ windowId });
+  const tags = await spaceTags(tabs);
+  for (const [i, tab] of tabs.entries()) {
     if (tab.active) active = tab;
     if (tab.pinned) continue;
-    if (ZF.tabSpace(await getSpaceTag(tab.id), spaces, spaceId) === spaceId) {
+    if (ZF.tabSpace(tags[i], spaces, spaceId) === spaceId) {
       here.push(tab);
       if (tab.hidden) show.push(tab.id);
     } else if (!tab.hidden) hide.push(tab.id);
@@ -1000,6 +1079,8 @@ async function showSpace(windowId, { focusLatest = false } = {}) {
   if (hide.length) await browser.tabs.hide(hide).catch(error => console.error("Hide tabs:", error));
 }
 
+ZF.showSpaceIn = windowId => showSpace(windowId);
+
 ZF.showAllSpaces = async () => {
   for (const win of await browser.windows.getAll({ windowTypes: ["normal"] })) await showSpace(win.id);
 };
@@ -1010,9 +1091,9 @@ ZF.switchSpace = async (windowId, spaceId) => {
   const to = ZF.resolveSpace(spaces, spaceId);
   if (from !== to) {
     // Untagged tabs follow the window's space, so pin them to the one they're in.
-    for (const tab of await browser.tabs.query({ windowId, pinned: false })) {
-      if (!(await getSpaceTag(tab.id))) await ZF.setMeta(tab.id, ZF.SPACE_KEY, from);
-    }
+    const tabs = await browser.tabs.query({ windowId, pinned: false });
+    const tags = await spaceTags(tabs);
+    await Promise.all(tabs.filter((_, i) => !tags[i]).map(t => ZF.setMeta(t.id, ZF.SPACE_KEY, from)));
     await browser.sessions.setWindowValue(windowId, ZF.WINDOW_SPACE_KEY, to);
   }
   await showSpace(windowId, { focusLatest: from !== to });
@@ -1059,10 +1140,9 @@ async function pinToFirstSpace(spaces) {
       await browser.sessions.setWindowValue(win.id, ZF.WINDOW_SPACE_KEY, first);
     }
   }
-  for (const tab of await browser.tabs.query({ pinned: false })) {
-    const tag = await getSpaceTag(tab.id);
-    if (tag && !known.has(tag)) await ZF.setMeta(tab.id, ZF.SPACE_KEY, first);
-  }
+  const tabs = await browser.tabs.query({ pinned: false });
+  const tags = await spaceTags(tabs);
+  await Promise.all(tabs.filter((_, i) => tags[i] && !known.has(tags[i])).map(t => ZF.setMeta(t.id, ZF.SPACE_KEY, first)));
 }
 
 // Move a space left (-1) or right (1) in the switcher.
@@ -1088,9 +1168,9 @@ ZF.deleteSpace = async spaceId => {
   const windows = await browser.windows.getAll({ windowTypes: ["normal"] });
   for (const win of windows) {
     const shown = await ZF.activeSpaceId(win.id, spaces);
-    for (const tab of await browser.tabs.query({ windowId: win.id, pinned: false })) {
-      if (ZF.tabSpace(await getSpaceTag(tab.id), spaces, shown) === spaceId) await ZF.setMeta(tab.id, ZF.SPACE_KEY, target);
-    }
+    const tabs = await browser.tabs.query({ windowId: win.id, pinned: false });
+    const tags = await spaceTags(tabs);
+    await Promise.all(tabs.filter((_, i) => ZF.tabSpace(tags[i], spaces, shown) === spaceId).map(t => ZF.setMeta(t.id, ZF.SPACE_KEY, target)));
     if (shown === spaceId) await browser.sessions.setWindowValue(win.id, ZF.WINDOW_SPACE_KEY, target);
   }
   await ZF.mutateFolders(folders => {
@@ -1150,11 +1230,11 @@ ZF.moveFolderToSpace = async (folderId, spaceId) => {
   });
   if (!moved) return;
   const windows = new Set();
-  for (const tab of await browser.tabs.query({ pinned: false })) {
-    if (!moved.has(await ZF.getPlace(tab.id))) continue;
-    await ZF.setMeta(tab.id, ZF.SPACE_KEY, spaceId);
-    windows.add(tab.windowId);
-  }
+  const tabs = await browser.tabs.query({ pinned: false });
+  const places = await Promise.all(tabs.map(t => ZF.getPlace(t.id)));
+  const inFolder = tabs.filter((_, i) => moved.has(places[i]));
+  await Promise.all(inFolder.map(t => ZF.setMeta(t.id, ZF.SPACE_KEY, spaceId)));
+  for (const tab of inFolder) windows.add(tab.windowId);
   for (const windowId of windows) await showSpace(windowId);
   await ZF.normalizeAllWindows();
 };
@@ -1230,7 +1310,7 @@ ZF.REMOTE_CALLS = [
 ];
 
 // Queued like the calls above, but only the background starts them.
-ZF.INTERNAL_CALLS = ["followTab", "adoptTab", "initWindow", "showAllSpaces"];
+ZF.INTERNAL_CALLS = ["followTab", "adoptTab", "initWindow", "showAllSpaces", "showSpaceIn"];
 
 ZF.local = {};
 let callQueue = Promise.resolve();
