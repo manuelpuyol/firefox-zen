@@ -20,8 +20,10 @@
     glance: { enabled: true, size: 80 },
   });
 
+  // Number(null) and Number("") are 0: treat them as missing, not as the minimum.
+  const toNumber = value => (value === null || value === "" ? NaN : Number(value));
   const clamp = (value, min, max, fallback) => {
-    const n = Number(value);
+    const n = toNumber(value);
     return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.round(n))) : fallback;
   };
   const bool = (value, fallback) => (typeof value === "boolean" ? value : fallback);
@@ -29,7 +31,7 @@
   ZF.BACKGROUNDS = ["aurora", "sunset", "ocean", "forest", "graphite", "plain"];
   // Like clamp, but rounds to a step (e.g. 0.25 for text sizes).
   const stepped = (value, min, max, step, fallback) => {
-    const n = Number(value);
+    const n = toNumber(value);
     return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.round(n / step) * step)) : fallback;
   };
 

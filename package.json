@@ -1,8 +1,17 @@
 {
   "name": "firefox-zen",
   "private": true,
-  "description": "Tests for the Zen Folder Tools extension; no dependencies.",
+  "description": "Tests for the Zen Folder Tools extension.",
   "scripts": {
-    "test": "node --test test/"
-  }
+    "test": "vitest run --project unit",
+    "test:watch": "vitest --project unit",
+    "test:e2e": "vitest run --project e2e"
+  },
+  "devDependencies": {
+    "@webext-core/fake-browser": "^2.0.1",
+    "happy-dom": "^21.0.4",
+    "selenium-webdriver": "^4.52.0",
+    "vitest": "^5.1.0"
+  },
+  "type": "module"
 }

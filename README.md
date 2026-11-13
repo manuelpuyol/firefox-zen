@@ -143,7 +143,10 @@ To rebuild folders from Zen, run `python3 export_zen_folders.py` (writes `~/Down
 
 ### Tests
 
-`npm test` (or `node --test test/`) runs the model's tests against an in-memory stand-in for Firefox's extension API: spaces (switching, hiding and its retries, deleting, reordering, moving tabs and folders), Clear, tab order, sharing tabs, and backups. No dependencies; needs Node 18 or newer.
+Install the dev dependencies once with `npm install` (Node 20 or newer).
+
+- `npm test` runs the unit and DOM tests in about 10 seconds, with no browser. They use [Vitest](https://vitest.dev/) and a stand-in for Firefox's extension API in `test/support/firefox.js`. Storage and alarms come from [`@webext-core/fake-browser`](https://webext-core.aklinker1.io/fake-browser/installation); tabs, windows, sessions and the rest are written to behave like Firefox. For example, it can't hide active, pinned or sharing tabs, and every window has its own active tab. They cover the model, the background script (messages, menus, shortcuts, start-up, retries, Glance and auto-unload) and settings. The sidebar and settings pages run in [happy-dom](https://github.com/capricorn86/happy-dom), with their own HTML and scripts talking to the real background script.
+- `npm run test:e2e` runs the end-to-end tests in real Firefox, headless, in about 5 seconds. Set `HEADED=1` to watch them. [Selenium](https://www.selenium.dev/documentation/webdriver/) starts Firefox through geckodriver, which Selenium Manager downloads the first time. Each run uses a throwaway profile made from this repo's `user.js` and `userChrome.css`, with the extension installed as a temporary add-on. They check the theme, spaces hiding and showing tabs in Firefox's tab strip, Essentials, turning the extension off and on, and Glance on a real page. Your own Firefox profile isn't touched.
 
 ### Installing
 
