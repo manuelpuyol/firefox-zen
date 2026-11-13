@@ -169,7 +169,40 @@ export async function launch() {
       );
     };
 
-    return { driver, id, host, chrome, ext, openInMain, quit };
+    // Opens Firefox's tab context menu on the first tab whose address ends
+    // with `suffix`, and returns the extension's items that are showing.
+    // With `choose`, picks that item, as a click would.
+    const tabMenu = (suffix, choose = null) =>
+      chrome(
+        `async (main, suffix, choose) => {
+          const tab = main.gBrowser.tabs.find(t => t.linkedBrowser.currentURI.spec.endsWith(suffix));
+          const menu = main.document.getElementById("tabContextMenu");
+          const shown = new Promise(r => menu.addEventListener("popupshown", r, { once: true }));
+          const trigger = new main.MouseEvent("contextmenu", { button: 2 });
+          tab.dispatchEvent(trigger);
+          menu.openPopupAtScreen(100, 100, true, trigger);
+          await shown;
+          // The extension hides what doesn't apply from its onShown listener,
+          // just after the menu opens: wait until the items stop changing.
+          const visible = () => [...menu.querySelectorAll("menuitem[id*='-menuitem-']")].filter(m => !m.hidden);
+          let labels = "";
+          for (let same = 0; same < 4; ) {
+            await new Promise(r => main.setTimeout(r, 50));
+            const now = visible().map(m => m.label).join("|");
+            same = now === labels ? same + 1 : 0;
+            labels = now;
+          }
+          const items = visible();
+          labels = items.map(m => m.label);
+          if (choose) items.find(m => m.label === choose).doCommand();
+          menu.hidePopup();
+          return labels;
+        }`,
+        suffix,
+        choose
+      );
+
+    return { driver, id, host, chrome, ext, openInMain, tabMenu, quit };
   } catch (error) {
     await quit();
     throw error;

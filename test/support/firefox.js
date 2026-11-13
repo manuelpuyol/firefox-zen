@@ -15,12 +15,15 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import vm from "node:vm";
 import { fakeBrowser } from "@webext-core/fake-browser";
 import { Window } from "happy-dom";
 
 export const EXTENSION = path.resolve(import.meta.dirname, "..", "..", "extension");
 export const ORIGIN = "moz-extension://test/";
+// file:// names let coverage map scripts run in vm contexts back to their files.
+const sourceUrl = file => pathToFileURL(path.join(EXTENSION, file)).href;
 const read = file => fs.readFileSync(path.join(EXTENSION, file), "utf8");
 export const MANIFEST = JSON.parse(read("manifest.json"));
 const EXTENSION_ID = MANIFEST.browser_specific_settings.gecko.id;
@@ -71,7 +74,7 @@ export function createFirefox({ windows: windowIds = [1] } = {}) {
   const tabs = [];
   const tabValues = new Map();
   const windowValues = new Map();
-  const calls = { hide: [], show: [], discard: [], tabMessages: [], executeScript: [], clipboard: [], sidebarClosed: 0, optionsOpened: 0 };
+  const calls = { hide: [], show: [], discard: [], tabMessages: [], executeScript: [], clipboard: [], overrideContext: [], sidebarClosed: 0, optionsOpened: 0 };
   const faults = { hide: null };
   const menus = new Map();
   const granted = new Set();
@@ -109,7 +112,10 @@ export function createFirefox({ windows: windowIds = [1] } = {}) {
   };
   const updated = (tab, change) => ev.tabs.onUpdated.emit(tab.id, change, copy(tab));
 
-  const activate = tab => {
+  // Selecting a tab makes it the whole selection (Firefox's active tab is
+  // always highlighted), unless tabs.highlight is choosing several.
+  const activate = (tab, { keepSelection = false } = {}) => {
+    if (!keepSelection) for (const t of tabs) if (t.windowId === tab.windowId) t.highlighted = t === tab;
     const previous = tabs.find(t => t.windowId === tab.windowId && t.active);
     if (previous === tab) return;
     if (previous) previous.active = false;
@@ -138,7 +144,7 @@ export function createFirefox({ windows: windowIds = [1] } = {}) {
       if (!tab) throw new Error(`Invalid tab ID: ${id}`);
       return copy(tab);
     },
-    async create({ windowId = windows[0].id, url = "about:newtab", active = true, pinned = false, discarded = false, title } = {}) {
+    async create({ windowId = windows[0].id, url = "about:newtab", active = true, pinned = false, discarded = false, title, cookieStoreId = "firefox-default" } = {}) {
       const tab = {
         id: nextTabId++,
         windowId,
@@ -150,10 +156,10 @@ export function createFirefox({ windows: windowIds = [1] } = {}) {
         hidden: false,
         discarded,
         highlighted: false,
-        incognito: false,
+        incognito: windows.find(w => w.id === windowId)?.incognito ?? false,
         status: "complete",
         lastAccessed: clock++,
-        cookieStoreId: "firefox-default",
+        cookieStoreId,
         groupId: -1,
       };
       tabs.push(tab);
@@ -245,14 +251,21 @@ export function createFirefox({ windows: windowIds = [1] } = {}) {
       const inWindow = tabs.filter(t => t.windowId === windowId);
       const chosen = ids(indexes).map(i => inWindow.find(t => t.index === i)).filter(Boolean);
       for (const t of inWindow) t.highlighted = chosen.includes(t);
-      if (chosen[0]) activate(chosen[0]);
+      if (chosen[0]) activate(chosen[0], { keepSelection: true });
       ev.tabs.onHighlighted.emit({ windowId, tabIds: chosen.map(t => t.id) });
     },
+    // Recorded, and delivered to that tab's content scripts.
     async sendMessage(tabId, message) {
       calls.tabMessages.push({ tabId, message: structuredClone(message) });
+      for (const realm of realms) {
+        if (realm.sender?.tab?.id !== tabId) continue;
+        for (const fn of realm.messageListeners) fn(structuredClone(message), { id: EXTENSION_ID });
+      }
     },
+    // A group with no tabs left is gone, as in Firefox.
     async ungroup(value) {
       for (const id of ids(value)) if (find(id)) find(id).groupId = -1;
+      for (let i = groups.length - 1; i >= 0; i--) if (!tabs.some(t => t.groupId === groups[i].id)) groups.splice(i, 1);
     },
     ...ev.tabs,
   };
@@ -328,7 +341,9 @@ export function createFirefox({ windows: windowIds = [1] } = {}) {
       menus.clear();
     },
     async refresh() {},
-    overrideContext() {},
+    overrideContext(context) {
+      calls.overrideContext.push(context);
+    },
     ...ev.menus,
   };
 
@@ -469,6 +484,13 @@ export function createFirefox({ windows: windowIds = [1] } = {}) {
         quiet = pending === 0 ? quiet + 1 : 0;
       }
     },
+    // Changes a tab the way a page would (title, favicon, sound, sharing…)
+    // and tells listeners.
+    change(id, props) {
+      const tab = find(id);
+      Object.assign(tab, props);
+      updated(tab, props);
+    },
     // Opens a tab in the background, as a link would.
     async open(url, extra = {}) {
       return (await tabsApi.create({ windowId: windows[0].id, url, active: false, ...extra })).id;
@@ -496,7 +518,7 @@ function baseGlobals(env) {
 export function loadModel(env, { windowId = env.windows[0].id } = {}) {
   const realm = env.newRealm(`${ORIGIN}model.html`, windowId);
   const context = vm.createContext({ ...baseGlobals(env), browser: realm.browser });
-  for (const file of ["lib/settings.js", "lib/model.js"]) vm.runInContext(read(file), context, { filename: file });
+  for (const file of ["lib/settings.js", "lib/model.js"]) vm.runInContext(read(file), context, { filename: sourceUrl(file) });
   context.ZF.IS_BACKGROUND = true;
   return context;
 }
@@ -505,7 +527,7 @@ export function loadModel(env, { windowId = env.windows[0].id } = {}) {
 export function loadBackground(env) {
   const realm = env.newRealm(`${ORIGIN}_generated_background_page.html`, env.windows[0].id);
   const context = vm.createContext({ ...baseGlobals(env), browser: realm.browser });
-  for (const file of MANIFEST.background.scripts) vm.runInContext(read(file), context, { filename: file });
+  for (const file of MANIFEST.background.scripts) vm.runInContext(read(file), context, { filename: sourceUrl(file) });
   return context;
 }
 
@@ -524,6 +546,12 @@ export async function loadPage(env, page, { windowId = env.windows[0].id } = {})
   const files = [...html.matchAll(/<script src="([^"]+)"/g)].map(m => path.posix.normalize(path.posix.join(path.posix.dirname(page), m[1])));
   window.document.write(html.replace(/<script[^>]*><\/script>/g, ""));
   Object.assign(window, { browser: realm.browser, structuredClone });
+  // happy-dom has no layout: every element is 100×100 at the origin, except
+  // rows inside a collapsed folder (the sidebar's CSS keeps its active row).
+  window.Element.prototype.getBoundingClientRect = function () {
+    const height = this.closest(".children.collapsed") && !this.classList.contains("active") ? 0 : 100;
+    return { x: 0, y: 0, top: 0, left: 0, width: 100, height, right: 100, bottom: height };
+  };
   // happy-dom has no Option constructor.
   window.Option ??= function Option(text = "", value, defaultSelected = false, selected = false) {
     const option = window.document.createElement("option");
@@ -531,9 +559,21 @@ export async function loadPage(env, page, { windowId = env.windows[0].id } = {})
     if (value !== undefined) option.value = value;
     return option;
   };
-  for (const file of files) vm.runInContext(read(file), window, { filename: file });
+  for (const file of files) vm.runInContext(read(file), window, { filename: sourceUrl(file) });
   await env.settle(60);
   return window;
+}
+
+// A content script in a web page (happy-dom) of `tab`, with the page's HTML.
+export async function loadContentScript(env, tab, { file = "glance-content.js", html = "" } = {}) {
+  const realm = env.newRealm(tab.url, tab.windowId, { tab: structuredClone(tab), frameId: 0 });
+  const window = new Window({ url: tab.url, settings: { disableJavaScriptFileLoading: true, disableCSSFileLoading: true, disableIframePageLoading: true } });
+  window.document.write(html);
+  window.browser = realm.browser;
+  const run = () => vm.runInContext(read(file), window, { filename: sourceUrl(file) });
+  run();
+  await env.settle();
+  return { window, document: window.document, realm, run };
 }
 
 export function plain(value) {

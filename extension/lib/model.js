@@ -570,8 +570,6 @@ async function claimForSpace(tabIds, windowId) {
   await Promise.all(tabIds.filter((_, i) => tags[i] && ZF.resolveSpace(spaces, tags[i]) !== shown).map(id => ZF.setMeta(id, ZF.SPACE_KEY, shown)));
 }
 
-ZF.moveTab = (tabId, place, position) => ZF.moveTabs([tabId], place, position);
-
 // spaceId: for a top-level folder (subfolders follow their parent); without
 // one it goes in the first space.
 ZF.createFolder = async (name, parentId = null, spaceId = null) => {

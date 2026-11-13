@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Zen Folder Tools",
-  "version": "0.10.6",
+  "version": "0.10.7",
   "description": "A Zen-style tab sidebar for Firefox: Essentials, kept tabs in nested folders, and regular tabs. Closing a kept tab unloads it, idle tabs unload automatically, and Alt+click previews a link in a Glance.",
   "icons": {
     "48": "icons/icon.svg",

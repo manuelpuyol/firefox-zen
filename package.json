@@ -5,9 +5,11 @@
   "scripts": {
     "test": "vitest run --project unit",
     "test:watch": "vitest --project unit",
-    "test:e2e": "vitest run --project e2e"
+    "test:e2e": "vitest run --project e2e",
+    "test:coverage": "vitest run --project unit --coverage"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^5.1.0",
     "@webext-core/fake-browser": "^2.0.1",
     "happy-dom": "^21.0.4",
     "selenium-webdriver": "^4.52.0",

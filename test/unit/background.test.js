@@ -346,3 +346,115 @@ describe("auto-unload", () => {
     expect((await env.browser.storage.local.get("lastAutoUnload")).lastAutoUnload.unloaded).toBe(1);
   });
 });
+
+describe("the rest of the background", () => {
+  let a, b;
+  beforeEach(async () => {
+    await start(async () => {
+      a = await env.open("https://a.test/", { title: "A" });
+      b = await env.open("https://b.test/", { title: "B" });
+    });
+  });
+
+  test("the reset shortcut takes a kept tab back to its original address, and leaves others alone", async () => {
+    await ZF.moveTabs([a], ZF.ROOT);
+    await env.browser.tabs.update(a, { url: "https://a.test/away" });
+    await env.browser.tabs.update(b, { url: "https://b.test/away" });
+    await env.events.commands.onCommand.trigger("reset-tab", await env.browser.tabs.get(a));
+    await env.events.commands.onCommand.trigger("reset-tab", await env.browser.tabs.get(b));
+    expect([env.find(a).url, env.find(b).url]).toEqual(["https://a.test/", "https://b.test/away"]);
+  });
+
+  test("Move to New Folder takes every selected tab, in tab order", async () => {
+    await env.browser.tabs.highlight({ windowId: W, tabs: [env.find(b).index, env.find(a).index] });
+    await env.events.menus.onClicked.trigger({ menuItemId: "zf-folder-with-tab" }, await env.browser.tabs.get(b));
+    await env.settle();
+    const folder = (await ZF.loadFolders())[0];
+    expect(plain((await ZF.buildView(W)).byPlace.get(folder.id).map(t => t.id))).toEqual([a, b]);
+  });
+
+  test("one hiding retry at a time, and at most five", async () => {
+    await ZF.onHideFailed();
+    await ZF.onHideFailed();
+    expect((await env.browser.storage.session.get("hideRetries")).hideRetries).toBe(1);
+    await env.browser.storage.session.set({ hideRetries: 5 });
+    await env.browser.alarms.clear("zf-retry-hiding");
+    await ZF.onHideFailed();
+    expect(await env.browser.alarms.get("zf-retry-hiding")).toBeUndefined();
+  });
+
+  test("waking from idle doesn't redo the start-up work", async () => {
+    await ZF.createSpace(W);
+    await ZF.switchSpace(W, "home");
+    await env.settle();
+    // Shown by hand meanwhile; a second background page start (idle wake-up)
+    // must not hide it again.
+    const [x] = env.tabs.filter(t => t.hidden);
+    await env.browser.tabs.show(x.id);
+    loadBackground(env);
+    await env.settle();
+    expect(env.find(x.id).hidden).toBe(false);
+  });
+
+  test("focus leaving every window is ignored; popups get no space", async () => {
+    const work = await ZF.createSpace(W);
+    await env.events.windows.onFocusChanged.trigger(W);
+    await env.events.windows.onFocusChanged.trigger(-1);
+    const popup = await env.browser.windows.create({ type: "popup" });
+    const win = await env.browser.windows.create({});
+    await env.settle(90);
+    expect(await env.browser.sessions.getWindowValue(popup.id, ZF.WINDOW_SPACE_KEY)).toBeUndefined();
+    expect(await env.browser.sessions.getWindowValue(win.id, ZF.WINDOW_SPACE_KEY)).toBe(work.id);
+  });
+
+  test("after tabs are shown or hidden, Firefox's tab order is put back in line", async () => {
+    await ZF.moveTabs([b], ZF.ROOT);
+    // Something else moves the kept tab after the regular one.
+    await env.browser.tabs.move(b, { windowId: W, index: -1 });
+    expect(env.find(b).index).toBe(1);
+    // (The active tab can't be hidden; another one is.)
+    const c = await env.open("https://c.test/");
+    await env.browser.tabs.hide(c);
+    expect(env.find(c).hidden).toBe(true);
+    await env.browser.tabs.show(c);
+    await new Promise(r => setTimeout(r, 250));
+    await env.settle();
+    expect(env.find(b).index).toBe(0);
+  });
+
+  test("a native group is only converted once its name has stayed the same for a second", async () => {
+    env.groups.push({ id: 9, windowId: W, title: "Rea" });
+    env.find(a).groupId = 9;
+    await env.events.tabGroups.onCreated.trigger({ id: 9, title: "Rea" });
+    // Still being typed: the name has changed by the time the second is up,
+    // and Firefox's update for it hasn't arrived yet.
+    env.groups[0].title = "Reading";
+    await new Promise(r => setTimeout(r, 1100));
+    await env.settle();
+    expect(await ZF.loadFolders()).toEqual([]);
+    await env.events.tabGroups.onUpdated.trigger({ id: 9, title: "Reading" });
+    await new Promise(r => setTimeout(r, 1100));
+    await env.settle();
+    expect((await ZF.loadFolders()).map(f => f.name)).toEqual(["Reading"]);
+  });
+
+  test("a native group removed before its name settles is left alone", async () => {
+    env.groups.push({ id: 8, windowId: W, title: "Gone" });
+    await env.events.tabGroups.onCreated.trigger({ id: 8, title: "Gone" });
+    env.groups.length = 0;
+    await new Promise(r => setTimeout(r, 1100));
+    await env.settle();
+    expect(await ZF.loadFolders()).toEqual([]);
+  });
+
+  test("a tab that can't be unloaded is counted as failed", async () => {
+    env.find(a).lastAccessed = 0;
+    const discard = env.browser.tabs.discard;
+    env.browser.tabs.discard = async () => {
+      throw new Error("Can't discard");
+    };
+    const summary = await ZF.unloadStaleTabs({ staleMs: 1 });
+    env.browser.tabs.discard = discard;
+    expect(summary.failed).toBe(1);
+  });
+});

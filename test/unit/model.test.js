@@ -348,3 +348,98 @@ describe("backups", () => {
     expect([recovered.name, recovered.spaceId]).toEqual(["Recovered folder 1", work.id]);
   });
 });
+
+describe("edge cases", () => {
+  test("Clear with a regular tab active switches to the last kept tab, or opens a new one", async () => {
+    await ZF.moveTabs([a], ZF.ROOT);
+    expect(await ZF.clearRegular(W)).toBe(2);
+    expect(env.find(a).active).toBe(true);
+    await ZF.moveTabs([a], null);
+    await env.browser.tabs.update(a, { active: true });
+    expect(await ZF.clearRegular(W)).toBe(1);
+    expect(env.tabs.map(t => t.url)).toEqual(["about:newtab"]);
+  });
+
+  test("closing a kept tab never switches to a tab closing with it; an unloaded Essential stays", async () => {
+    await ZF.moveTabs([a, b], ZF.ROOT);
+    await env.browser.tabs.update(b, { active: true });
+    // a (above) is closing too, so the tab below is chosen.
+    await ZF.closeOrUnload(b, await ZF.buildView(W), { avoid: [a, b] });
+    expect([env.find(b).discarded, env.find(c).active]).toEqual([true, true]);
+    // Without "unload first", a kept tab just closes.
+    await ZF.closeOrUnload(a, null, { unloadFirst: false });
+    expect(env.find(a)).toBeUndefined();
+    const mail = await env.open("https://mail.test/", { pinned: true, discarded: true });
+    await ZF.closeOrUnload(mail, null);
+    expect(env.find(mail)).toBeDefined();
+  });
+
+  test("an Essential moved into a folder is unpinned; untouched neighbours keep their place", async () => {
+    const mail = await env.open("https://mail.test/", { pinned: true });
+    const folder = await ZF.createFolder("F", null, "home");
+    // b is in the folder without a stored position (as after an old version).
+    await ZF.setPlace(await env.browser.tabs.get(b), folder.id);
+    await env.browser.sessions.removeTabValue(b, ZF.ORDER_KEY);
+    await ZF.moveItems(W, [{ kind: "tab", id: mail }], folder.id, { anchor: { kind: "tab", id: b } });
+    expect(env.find(mail).pinned).toBe(false);
+    expect(typeof (await env.browser.sessions.getTabValue(b, ZF.ORDER_KEY))).toBe("number");
+    expect(plain((await ZF.buildView(W)).byPlace.get(folder.id).map(t => t.id))).toEqual([mail, b]);
+  });
+
+  test("an order that doesn't match the window's tabs moves them all into place", async () => {
+    const mail = await env.open("https://mail.test/", { pinned: true });
+    await ZF.applyOrder(W, [c, mail, a, b]);
+    expect(env.tabs.filter(t => !t.pinned).sort((x, y) => x.index - y.index).map(t => t.id)).toEqual([c, a, b]);
+  });
+
+  test("a window that fails while showing spaces doesn't stop the others", async () => {
+    env = createFirefox({ windows: [1, 2] });
+    ({ ZF } = loadModel(env));
+    const x = await env.open("https://x.test/");
+    const y = (await env.browser.tabs.create({ windowId: 2, url: "https://y.test/" })).id;
+    await env.browser.tabs.create({ windowId: 2, url: "https://z.test/" });
+    await ZF.createSpace(null, { name: "Work" });
+    await env.browser.sessions.setTabValue(y, ZF.SPACE_KEY, "elsewhere-unknown");
+    await env.browser.sessions.setWindowValue(2, ZF.WINDOW_SPACE_KEY, (await ZF.loadSpaces())[1].id);
+    const query = env.browser.tabs.query;
+    env.browser.tabs.query = async filter => {
+      if (filter?.windowId === 1) throw new Error("Window closed");
+      return query(filter);
+    };
+    expect(await ZF.showAllSpaces()).toBe(false);
+    env.browser.tabs.query = query;
+    // Window 2 was still handled: its untagged-space tab follows its shown space.
+    expect(env.find(y).hidden).toBe(true);
+    expect(env.find(x).hidden).toBe(false);
+  });
+
+  test("moving the first space gives tabs of unknown spaces to it", async () => {
+    const work = await ZF.createSpace(null, { name: "Work" });
+    await env.browser.sessions.setTabValue(a, ZF.SPACE_KEY, "deleted-space");
+    await ZF.moveSpace(work.id, -1);
+    expect(await tag(a)).toBe("home");
+    expect((await ZF.loadSpaces()).map(s => s.name)).toEqual(["Work", "Home"]);
+  });
+
+  test("a folder moved to another space goes after what's already at its top level", async () => {
+    const work = await ZF.createSpace(null, { name: "Work" });
+    const there = await ZF.createFolder("There", null, work.id);
+    await ZF.moveTabs([a], ZF.ROOT);
+    const moving = await ZF.createFolder("Moving", null, "home");
+    await ZF.moveFolderToSpace(moving.id, work.id);
+    const folders = await ZF.loadFolders();
+    const moved = folders.find(f => f.id === moving.id);
+    expect(moved.order).toBeGreaterThan(folders.find(f => f.id === there.id).order);
+    expect(moved.order).toBeGreaterThan(await env.browser.sessions.getTabValue(a, ZF.ORDER_KEY));
+    // Unknown space or folder: nothing happens.
+    await ZF.moveFolderToSpace(moving.id, "nope");
+    await ZF.moveFolderToSpace("nope", work.id);
+    expect((await ZF.loadFolders()).find(f => f.id === moving.id).spaceId).toBe(work.id);
+  });
+
+  test("a Zen export with a loop in its folders still imports", async () => {
+    const result = await ZF.importZenFolders({ folders: [{ id: "x", name: "X", parentId: "y" }, { id: "y", name: "Y", parentId: "x" }], tabs: [] });
+    expect(result.folders).toBe(2);
+    expect((await ZF.loadFolders()).some(f => f.parentId === null)).toBe(true);
+  });
+});

@@ -104,3 +104,119 @@ test("restoring a backup reports what it did, and a bad file says why", async ()
   await chooseFile(doc.getElementById("restore-file"), { hello: "world" });
   expect(doc.getElementById("backup-result").textContent).toMatch(/^Couldn't restore: /);
 });
+
+test("sliders show their value at once and save when you pause; text saves after typing stops", async () => {
+  const slider = setting("glance.size");
+  slider.value = "60";
+  slider.dispatchEvent(new win.Event("input", { bubbles: true }));
+  expect(doc.querySelector('[data-output="glance.size"]').textContent).toBe("60%");
+  expect((await ZF.getSettings()).glance.size).toBe(80);
+  await new Promise(r => setTimeout(r, 350));
+  await env.settle(60);
+  expect((await ZF.getSettings()).glance.size).toBe(60);
+
+  const text = setting("autoUnload.neverUnload");
+  text.focus();
+  text.value = "*mail*";
+  text.dispatchEvent(new win.Event("input", { bubbles: true }));
+  // A change from elsewhere doesn't overwrite what's being typed.
+  await ZF.updateSettings("glance", { size: 70 });
+  await env.settle(60);
+  expect(text.value).toBe("*mail*");
+  await new Promise(r => setTimeout(r, 350));
+  await env.settle(60);
+  expect((await ZF.getSettings()).autoUnload.neverUnload).toBe("*mail*");
+});
+
+test("turning Glance on asks for access to websites", async () => {
+  change(setting("glance.enabled"), false);
+  await env.settle(60);
+  change(setting("glance.enabled"), true);
+  await env.settle(60);
+  expect(env.granted.has("<all_urls>")).toBe(true);
+  expect(doc.getElementById("glance-access").textContent).toBe("Remove access");
+});
+
+test("the last unload run says what was kept loaded and why", async () => {
+  await env.browser.storage.local.set({
+    lastAutoUnload: { at: Date.now() - 5 * 60_000, unloaded: 1, skipped: { essential: 1, active: 2, audible: 1, sharing: 1, "never-unload": 3, recent: 9 } },
+  });
+  await env.settle(60);
+  expect(doc.getElementById("last-run").textContent).toBe("Last run 5 minutes ago: unloaded 1 tab");
+  expect(doc.getElementById("last-run-detail").textContent).toBe(
+    "Kept loaded: 1 Essential, 2 current, 1 playing audio, 1 in a call, 3 on your never-unload list."
+  );
+});
+
+test("Change shortcuts opens Firefox's shortcut settings, or the add-ons page", async () => {
+  const opened = [];
+  win.browser.commands.openShortcutSettings = () => opened.push("shortcuts");
+  doc.getElementById("edit-shortcuts").click();
+  delete win.browser.commands.openShortcutSettings;
+  doc.getElementById("edit-shortcuts").click();
+  await env.settle(60);
+  expect(opened).toEqual(["shortcuts"]);
+  expect(env.tabs.some(t => t.url === "about:addons")).toBe(true);
+});
+
+test("Import from Zen reports what it did, or why it couldn't", async () => {
+  await env.open("https://docs.test/");
+  let picked = 0;
+  doc.getElementById("import-file").addEventListener("click", () => picked++);
+  doc.getElementById("import-zen").click();
+  expect(picked).toBe(1);
+  await chooseFile(doc.getElementById("import-file"), { folders: [{ id: "z", name: "Zen" }], tabs: [{ folderId: "z", urls: ["https://docs.test/"] }] });
+  expect(doc.getElementById("import-result").textContent).toBe("Imported 1 folders and moved 1 tabs into them.");
+  await chooseFile(doc.getElementById("import-file"), { nope: true });
+  expect(doc.getElementById("import-result").textContent).toBe("Couldn't import: Not a Zen folders export");
+});
+
+test("Export saves a dated backup file and says what's in it", async () => {
+  const work = await ZF.createSpace(null, { name: "Work" });
+  const kept = await env.open("https://docs.test/");
+  await ZF.moveTabs([kept], (await ZF.createFolder("Docs", null, work.id)).id);
+  await env.open(`https://long.test/?${"x".repeat(9000)}`, { pinned: true });
+  const files = [];
+  win.URL.createObjectURL = blob => (files.push(blob), "blob:backup");
+  win.HTMLAnchorElement.prototype.click = function () {
+    files.push(this.download);
+  };
+  doc.getElementById("export-backup").click();
+  await env.settle(60);
+  expect(files[1]).toMatch(/^zen-folder-tools-\d{4}-\d{2}-\d{2}\.json$/);
+  const data = JSON.parse(await files[0].text());
+  expect([data.format, data.spaces.length, data.folders.length, data.tabs.length]).toEqual(["zen-folder-tools-backup", 2, 1, 1]);
+  expect(doc.getElementById("backup-result").textContent).toBe(
+    "Exported 2 spaces, 1 folder, 1 kept tab and 0 Essentials. 1 tab with an address over 8,192 characters wasn't included."
+  );
+});
+
+test("a restore mentions container tabs and long addresses it skipped", async () => {
+  let picked = 0;
+  doc.getElementById("restore-file").addEventListener("click", () => picked++);
+  doc.getElementById("restore-backup").click();
+  expect(picked).toBe(1);
+  await chooseFile(doc.getElementById("restore-file"), {
+    format: "zen-folder-tools-backup",
+    version: 2,
+    folders: [],
+    tabs: [
+      { url: "https://bank.test/", place: "root", container: "firefox-container-1" },
+      { url: `https://a.test/?${"x".repeat(9000)}`, place: "root" },
+    ],
+    essentials: [],
+  });
+  const text = doc.getElementById("backup-result").textContent;
+  expect(text).toContain("1 tabs from containers weren't reopened");
+  expect(text).toContain("1 tab with an address over 8,192 characters was skipped.");
+});
+
+test("cancelling a file picker changes nothing", async () => {
+  for (const id of ["import-file", "restore-file"]) {
+    const input = doc.getElementById(id);
+    Object.defineProperty(input, "files", { configurable: true, value: [] });
+    input.dispatchEvent(new win.Event("change", { bubbles: true }));
+  }
+  await env.settle(60);
+  expect([doc.getElementById("import-result").textContent, doc.getElementById("backup-result").textContent]).toEqual(["", ""]);
+});
