@@ -8,7 +8,8 @@
     "test:e2e": "vitest run --project e2e",
     "test:coverage": "vitest run --project unit --coverage",
     "lint": "eslint . && web-ext lint --source-dir extension",
-    "build": "web-ext build --source-dir extension --artifacts-dir dist --overwrite-dest"
+    "build": "web-ext build --source-dir extension --artifacts-dir dist --overwrite-dest",
+    "screenshots": "node scripts/screenshots.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

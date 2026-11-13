@@ -55,9 +55,12 @@ async function run(driver, context, body, args) {
   return result?.value;
 }
 
-export async function launch() {
+// prefs: extra Firefox preferences for this run, e.g. { "network.proxy.type": 1 }.
+export async function launch({ prefs = {} } = {}) {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "zf-e2e-"));
   fs.copyFileSync(path.join(KIT, "user.js"), path.join(profile, "user.js"));
+  const extra = Object.entries(prefs).map(([name, value]) => `user_pref(${JSON.stringify(name)}, ${JSON.stringify(value)});`);
+  if (extra.length) fs.appendFileSync(path.join(profile, "user.js"), `\n${extra.join("\n")}\n`);
   fs.mkdirSync(path.join(profile, "chrome"));
   fs.copyFileSync(path.join(KIT, "chrome", "userChrome.css"), path.join(profile, "chrome", "userChrome.css"));
 

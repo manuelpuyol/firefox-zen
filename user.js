@@ -1,4 +1,4 @@
-// Zen-like Firefox (tested on Firefox 159 / Nova).
+// Zen-like Firefox (tested on Firefox 160 / Nova).
 // Copied into the profile folder; Firefox re-applies these on every launch.
 // To undo a pref: delete the line here AND reset it in about:config.
 
