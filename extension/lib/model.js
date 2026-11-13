@@ -1115,7 +1115,10 @@ async function showSpace(windowId, { focusLatest = false } = {}) {
     if (latest) await browser.tabs.update(latest.id, { active: true });
     else await browser.tabs.create({ windowId });
   }
-  return hide.length ? hideTabs(windowId, hide) : true;
+  const hidden = hide.length ? await hideTabs(windowId, hide) : true;
+  // The background schedules another try (see background.js).
+  if (!hidden) ZF.onHideFailed?.();
+  return hidden;
 }
 
 // Whether the tabs ended up hidden. A tab closing meanwhile makes the whole

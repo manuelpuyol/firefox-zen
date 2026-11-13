@@ -1,0 +1,8 @@
+{
+  "name": "firefox-zen",
+  "private": true,
+  "description": "Tests for the Zen Folder Tools extension; no dependencies.",
+  "scripts": {
+    "test": "node --test test/"
+  }
+}

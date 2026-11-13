@@ -141,6 +141,10 @@ Firefox deletes an extension's data when it's removed, and a temporarily loaded 
 
 To rebuild folders from Zen, run `python3 export_zen_folders.py` (writes `~/Downloads/zen-folders.json`) and use **Import folders from Zen** on the settings page. Open tabs with matching addresses are moved into the recreated folders, and emptied *Recovered* folders are removed.
 
+### Tests
+
+`npm test` (or `node --test test/`) runs the model's tests against an in-memory stand-in for Firefox's extension API: spaces (switching, hiding and its retries, deleting, reordering, moving tabs and folders), Clear, tab order, sharing tabs, and backups. No dependencies; needs Node 18 or newer.
+
 ### Installing
 
 Release Firefox only installs signed extensions. To install:

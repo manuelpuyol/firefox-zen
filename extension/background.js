@@ -126,9 +126,18 @@ browser.menus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === "zf-keep") ZF.moveTabs(unpinned.filter((_, i) => !places[i]).map(t => t.id), ZF.ROOT);
   if (info.menuItemId === "zf-unkeep") ZF.moveTabs(unpinned.filter((_, i) => places[i]).map(t => t.id), null);
   if (info.menuItemId === "zf-folder-with-tab") {
-    const folder = await ZF.createFolder("New Folder", null, await ZF.activeSpaceId(tab.windowId, await ZF.loadSpaces()));
-    // Every selected tab except Essentials, in tab order.
-    await ZF.moveTabs([...unpinned].sort((a, b) => a.index - b.index).map(t => t.id), folder.id);
+    // The folder goes in the clicked tab's own space (usually the one shown;
+    // another space's tab is only listed here while it's sharing), and takes
+    // the selected tabs of that space.
+    const spaces = await ZF.loadSpaces();
+    const shown = await ZF.activeSpaceId(tab.windowId, spaces);
+    const tags = await Promise.all(unpinned.map(t => browser.sessions.getTabValue(t.id, ZF.SPACE_KEY).catch(() => undefined)));
+    const spaceOf = i => ZF.tabSpace(tags[i], spaces, shown);
+    const spaceId = spaceOf(unpinned.findIndex(t => t.id === tab.id));
+    const folder = await ZF.createFolder("New Folder", null, spaceId);
+    // Every selected tab of that space except Essentials, in tab order.
+    const tabs = unpinned.filter((_, i) => spaceOf(i) === spaceId).sort((a, b) => a.index - b.index);
+    await ZF.moveTabs(tabs.map(t => t.id), folder.id);
     browser.runtime.sendMessage({ type: "zf-rename", folderId: folder.id, windowId: tab.windowId }).catch(() => {});
   }
 });
@@ -173,7 +182,25 @@ for (const event of ["onCreated", "onUpdated"]) {
 browser.alarms.onAlarm.addListener(async alarm => {
   // Re-check: the alarm may fire just as auto-unload is being turned off.
   if (alarm.name === ZF.UNLOAD_ALARM && (await ZF.getUnloadSettings()).enabled) ZF.unloadStaleTabs();
+  if (alarm.name === HIDE_RETRY_ALARM) retryHiding();
 });
+
+// When other spaces' tabs couldn't be hidden, try again a little later
+// (30s, 1, 2, 4 then 8 minutes), until it works.
+const HIDE_RETRY_ALARM = "zf-retry-hiding";
+const HIDE_RETRY_DELAYS = [0.5, 1, 2, 4, 8];
+ZF.onHideFailed = async () => {
+  if (await browser.alarms.get(HIDE_RETRY_ALARM)) return;
+  const { hideRetries = 0 } = await browser.storage.session.get("hideRetries");
+  if (hideRetries >= HIDE_RETRY_DELAYS.length) return;
+  await browser.storage.session.set({ hideRetries: hideRetries + 1 });
+  browser.alarms.create(HIDE_RETRY_ALARM, { delayInMinutes: HIDE_RETRY_DELAYS[hideRetries] });
+};
+async function retryHiding() {
+  if (await ZF.showAllSpaces().catch(() => false)) {
+    await browser.storage.session.set({ hideRetries: 0, spacesStarted: true });
+  }
+}
 
 browser.tabs.onUpdated.addListener((_id, _change, tab) => ZF.keepEssentialLoaded(tab).catch(() => {}), {
   properties: ["pinned"],
