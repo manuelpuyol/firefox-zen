@@ -174,6 +174,116 @@ describe("drag and drop", () => {
   });
 });
 
+describe("dragging to another space", () => {
+  let a, b, w, work, workFolder;
+  const fire = (type, node, init = {}) => {
+    const event = new s.win.MouseEvent(type, { bubbles: true, cancelable: true, clientX: 50, clientY: 50, ...init });
+    Object.defineProperty(event, "dataTransfer", { value: transfer });
+    node.dispatchEvent(event);
+    return event;
+  };
+  let transfer;
+  const spaceButton = id => s.$(`#spaces [data-space-id="${id}"]`);
+
+  beforeEach(async () => {
+    await open(async env => {
+      a = await env.open("https://a.test/", { title: "A" });
+      b = await env.open("https://b.test/", { title: "B" });
+    });
+    work = await ZF.createSpace(W, { name: "Work" });
+    w = await env.open("https://w.test/", { title: "W" });
+    workFolder = await ZF.createFolder("Projects", null, work.id);
+    await ZF.switchSpace(W, "home");
+    await env.browser.tabs.update(a, { active: true });
+    await s.redraw();
+    transfer = new s.win.DataTransfer();
+  });
+
+  test("holding a tab over a space switches to it, and it drops into that space", async () => {
+    const source = s.row(a);
+    fire("dragstart", source);
+    fire("dragover", spaceButton(work.id));
+    await env.settle(150);
+    expect(await s.activeSpace()).toBe("home");
+    await env.settle(600);
+    expect(await s.activeSpace()).toBe(work.id);
+    // Redrawn mid-drag: the other space's list is showing.
+    expect(s.folderRow(workFolder.id)).not.toBeNull();
+    expect(env.find(a).hidden).toBe(true);
+    fire("dragover", s.folderRow(workFolder.id));
+    expect(s.folderRow(workFolder.id).classList.contains("drop-into")).toBe(true);
+    fire("drop", s.folderRow(workFolder.id));
+    // The dragged row was redrawn away, but its dragend still ends the drag.
+    fire("dragend", source);
+    await s.redraw();
+    expect(await ZF.getPlace(a)).toBe(workFolder.id);
+    expect(await env.browser.sessions.getTabValue(a, ZF.SPACE_KEY)).toBe(work.id);
+    expect([env.find(a).hidden, env.find(a).active]).toEqual([false, true]);
+    expect(s.$(`[data-folder-block="${workFolder.id}"] .row[data-tab-id="${a}"]`)).not.toBeNull();
+    expect(s.row(w)).not.toBeNull();
+  });
+
+  test("a tab that isn't being viewed shows up among the new space's tabs", async () => {
+    const source = s.row(b);
+    fire("dragstart", source);
+    fire("dragover", spaceButton(work.id));
+    await env.settle(600);
+    fire("dragover", s.row(w), { clientY: 10 });
+    fire("drop", s.row(w), { clientY: 10 });
+    fire("dragend", source);
+    await s.redraw();
+    expect(await env.browser.sessions.getTabValue(b, ZF.SPACE_KEY)).toBe(work.id);
+    expect([env.find(b).hidden, env.find(b).active]).toEqual([false, false]);
+    expect(s.titles("#regular").slice(-2)).toEqual(["B", "W"]);
+  });
+
+  test("moving on before the delay doesn't switch", async () => {
+    fire("dragstart", s.row(a));
+    fire("dragover", spaceButton(work.id));
+    await env.settle(150);
+    fire("dragover", s.row(b));
+    await env.settle(600);
+    expect(await s.activeSpace()).toBe("home");
+    fire("dragend", s.row(a));
+  });
+
+  test("dropped on a space's button, a tab goes to that space without switching", async () => {
+    fire("dragstart", s.row(b));
+    const over = fire("dragover", spaceButton(work.id));
+    expect([over.defaultPrevented, spaceButton(work.id).classList.contains("drop-space")]).toEqual([true, true]);
+    // Its own space's button isn't a target.
+    expect(fire("dragover", spaceButton("home")).defaultPrevented).toBe(false);
+    fire("dragover", spaceButton(work.id));
+    fire("drop", spaceButton(work.id));
+    fire("dragend", s.row(b));
+    await s.redraw();
+    expect(await s.activeSpace()).toBe("home");
+    expect(await env.browser.sessions.getTabValue(b, ZF.SPACE_KEY)).toBe(work.id);
+    expect(env.find(b).hidden).toBe(true);
+    expect(s.row(b)).toBeNull();
+  });
+
+  test("a folder carried to another space takes its tabs with it", async () => {
+    const folder = await ZF.createFolder("Reading", null, "home");
+    await ZF.moveTabs([b], folder.id);
+    await s.redraw();
+    const source = s.folderRow(folder.id);
+    fire("dragstart", source);
+    fire("dragover", spaceButton(work.id));
+    await env.settle(600);
+    expect(await s.activeSpace()).toBe(work.id);
+    fire("dragover", s.$("#pinned"));
+    fire("drop", s.$("#pinned"));
+    fire("dragend", source);
+    await s.redraw();
+    const folders = await ZF.loadFolders();
+    expect(ZF.folderSpace(folders, folders.find(f => f.id === folder.id), await ZF.loadSpaces())).toBe(work.id);
+    expect(await env.browser.sessions.getTabValue(b, ZF.SPACE_KEY)).toBe(work.id);
+    expect(env.find(b).hidden).toBe(false);
+    expect(s.$(`[data-folder-block="${folder.id}"] .row[data-tab-id="${b}"]`)).not.toBeNull();
+  });
+});
+
 describe("context menus", () => {
   let a, folder;
   beforeEach(async () => {

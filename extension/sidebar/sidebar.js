@@ -177,6 +177,8 @@ async function render({ force = false } = {}) {
   applyBackground();
   slideInSpace();
   revealActive();
+  // Redrawn mid-drag (after switching space): the dragged items stay faded.
+  if (dragging) markDragging(dragging);
 
   if (renamingFolderId) {
     const input = /** @type {HTMLInputElement} */ (document.querySelector(`[data-rename-for="${renamingFolderId}"]`));
@@ -857,10 +859,47 @@ browser.runtime.onMessage.addListener(message => {
 
 const DRAG_TYPE = "application/x-zen-folder-tools";
 
+// Holding a drag over another space's button switches to it, so the items
+// can be dropped anywhere in that space.
+const SPACE_HOVER_MS = 400;
+
 function clearIndicators() {
-  for (const node of document.querySelectorAll(".drop-before, .drop-after, .drop-into, .drop-zone")) {
-    node.classList.remove("drop-before", "drop-after", "drop-into", "drop-zone", "drop-child");
+  for (const node of document.querySelectorAll(".drop-before, .drop-after, .drop-into, .drop-zone, .drop-space")) {
+    node.classList.remove("drop-before", "drop-after", "drop-into", "drop-zone", "drop-child", "drop-space");
   }
+}
+
+function markDragging(drag) {
+  const nodes = drag.kind === "folder" ? document.querySelectorAll(`[draggable=true][data-folder-id="${drag.id}"]`) : drag.ids.flatMap(id => [...rowsFor(id)]);
+  for (const node of nodes) node.classList.add("dragging");
+}
+
+let spaceHover = null;
+function hoverSpace(spaceId) {
+  if (spaceHover?.spaceId === spaceId) return;
+  clearTimeout(spaceHover?.timer);
+  spaceHover = spaceId && spaceId !== view?.spaceId ? { spaceId, timer: setTimeout(() => switchWhileDragging(spaceId), SPACE_HOVER_MS) } : null;
+}
+
+async function switchWhileDragging(spaceId) {
+  spaceHover = null;
+  if (!dragging) return;
+  await ZF.switchSpace(windowId, spaceId);
+  // Switching tags the old space's untagged tabs; don't use cached tags.
+  ZF.metaCache = new Map();
+  if (dragging) await render({ force: true });
+}
+
+// The items' own space, for dropping them into the space now shown.
+const moveToSpace = (drag, spaceId) => (drag.kind === "folder" ? ZF.moveFolderToSpace(drag.id, spaceId) : ZF.moveTabsToSpace(drag.ids, spaceId));
+
+function endDrag() {
+  if (!dragging) return;
+  dragging = null;
+  hoverSpace(null);
+  clearIndicators();
+  for (const node of document.querySelectorAll(".dragging")) node.classList.remove("dragging");
+  if (renderPending) scheduleRender();
 }
 
 document.addEventListener("dragstart", event => {
@@ -872,23 +911,26 @@ document.addEventListener("dragstart", event => {
   } else {
     const id = Number(item.dataset.tabId);
     const selection = selectedIds();
-    dragging = { kind: "tab", id, ids: selection.includes(id) ? selection : [id] };
+    dragging = { kind: "tab", id, ids: selection.includes(id) ? selection : [id], essential: item.classList.contains("tile") };
   }
   event.dataTransfer.setData(DRAG_TYPE, JSON.stringify(dragging));
   event.dataTransfer.effectAllowed = "move";
-  item.classList.add("dragging");
-  for (const id of dragging.ids ?? []) for (const node of rowsFor(id)) node.classList.add("dragging");
-});
-
-document.addEventListener("dragend", () => {
-  dragging = null;
-  clearIndicators();
-  for (const node of document.querySelectorAll(".dragging")) node.classList.remove("dragging");
-  if (renderPending) scheduleRender();
+  Object.assign(dragging, { fromSpace: view?.spaceId, activeId: view?.activeId });
+  markDragging(dragging);
+  // Switching space mid-drag redraws the list, taking the dragged row out of
+  // the page; dragend still reaches it, but no longer bubbles to document.
+  target.addEventListener("dragend", endDrag, { once: true });
 });
 
 // Works out what a drop at this point would do. Returns null if nothing.
 function dropTarget(event, drag) {
+  // On a space's button: into that space (Essentials are in every space).
+  const spaceButton = event.target.closest?.("#spaces [data-space-id]");
+  if (spaceButton) {
+    const spaceId = spaceButton.dataset.spaceId;
+    if (spaceId === drag.fromSpace || drag.essential) return null;
+    return { node: spaceButton, mark: "drop-space", run: () => moveToSpace(drag, spaceId) };
+  }
   const target = event.target.closest?.(".tile, .row, #essentials, #pinned, #separator, #regular, #new-tab");
   if (!target) return null;
   const rect = target.getBoundingClientRect();
@@ -947,6 +989,7 @@ function dropTarget(event, drag) {
 
 document.addEventListener("dragover", event => {
   if (!dragging) return;
+  hoverSpace(/** @type {Element} */ (event.target).closest?.("#spaces [data-space-id]")?.dataset.spaceId ?? null);
   const drop = dropTarget(event, dragging);
   clearIndicators();
   if (!drop) return;
@@ -955,14 +998,26 @@ document.addEventListener("dragover", event => {
   drop.node.classList.add(...drop.mark.split(" "));
 });
 
+// The pointer left the sidebar.
+document.addEventListener("dragleave", event => {
+  if (!event.relatedTarget) hoverSpace(null);
+});
+
 document.addEventListener("drop", async event => {
-  if (!dragging) return;
-  const drop = dropTarget(event, dragging);
+  const drag = dragging;
+  if (!drag) return;
+  hoverSpace(null);
+  const drop = dropTarget(event, drag);
   event.preventDefault();
   clearIndicators();
   if (!drop) return;
-  const moved = dragging?.ids ?? [];
+  const moved = drag.ids ?? [];
+  // Dragged here from another space: into this space first, then into place.
+  const crossed = view.spaceId !== drag.fromSpace && !drop.node.matches("#spaces [data-space-id]");
+  if (crossed) await moveToSpace(drag, view.spaceId);
   await drop.run();
+  // The tab being viewed was carried over: keep viewing it.
+  if (crossed && moved.includes(drag.activeId)) await browser.tabs.update(drag.activeId, { active: true });
   // Moving tabs clears Firefox's selection; keep it, like a native drag.
   const active = await activeTabId();
   if (moved.length > 1 && moved.includes(active)) await highlight(moved, active);

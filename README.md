@@ -60,7 +60,7 @@ Each window shows one space at a time, with its own kept tabs, folders and regul
   <img src="docs/images/new-space.png" alt="The New space dialog, with a name and an icon picker" width="480">
 
 - **Right-click a space** (its icon, or its name under the Essentials) to rename it, change its icon, give it its own background, move it left or right, or delete it. Double-click the name to rename it. Deleting a space never closes tabs: they and its folders move to the space before it.
-- **Move tabs and folders between spaces** with *Move to Space* in the tab menu and *Move Folder to Space* in the folder menu. A kept tab moved on its own goes to the other space's top level, since a folder belongs to one space.
+- **Move tabs and folders between spaces** by dragging them onto a space's icon and holding there: after a moment the sidebar switches to that space, and you can drop them anywhere in it. Dropping straight onto the icon sends them to that space without switching. The tab you were viewing stays open when you carry it over. *Move to Space* in the tab menu and *Move Folder to Space* in the folder menu do the same; there, a kept tab moved on its own goes to the other space's top level, since a folder belongs to one space.
 - New tabs open in the current space. Switching to a tab from another space (for example *Switch to Tab* in the address bar) switches to its space. A tab dragged to another window joins that window's space.
 - Each window remembers its space across restarts, and a new window starts in the space of the window it was opened from.
 
